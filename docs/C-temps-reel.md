@@ -156,7 +156,7 @@ Deux garanties côté serveur rendent ce contrat exact : `version` augmente de 1
 4. Lisez l'état et comparez la version à celle du dernier event :
 
 ```bash
-curl -s http://127.0.0.1/api/rooms/XXXX/state
+curl -s http://127.0.0.1:8000/api/rooms/XXXX/state
 ```
 
 5. Arrêtez Reverb (Ctrl+C), ajoutez un morceau avec `curl` : la réponse reste **201**. Les pages passent à « Reconnexion… » puis « Hors ligne ». Relancez Reverb : elles repassent à « Connecté » et affichent le morceau manqué.

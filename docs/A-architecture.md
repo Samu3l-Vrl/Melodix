@@ -225,6 +225,6 @@ Il n'y a **pas** d'index unique sur `(room_id, position)` : réordonner exigerai
 Vous devez pouvoir :
 - voir les cinq services à l'état `running` avec `./vendor/bin/sail ps` ;
 - lire « Salon de démo créé : XXXX » en sortie du seed, avec un code de 4 lettres sans I ni O ;
-- ouvrir `http://127.0.0.1` et voir la page d'accueil (après `sail npm install` et `sail npm run dev`) ;
+- ouvrir `http://127.0.0.1:8000` et voir la page d'accueil (après `sail npm install` et `sail npm run dev`) ;
 - inspecter le schéma : `./vendor/bin/sail artisan db:table rooms` montre `code` unique et `version` en bigint ;
 - exécuter `./vendor/bin/sail artisan rooms:close-inactive` et lire « 0 salon(s) fermé(s) ».

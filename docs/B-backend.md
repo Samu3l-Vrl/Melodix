@@ -253,24 +253,24 @@ Pourquoi verrouiller la ligne `rooms` plutôt qu'utiliser un verrou Redis ? Le v
 
 Avec `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` et `YOUTUBE_API_KEY` renseignés :
 
-1. `http://127.0.0.1` → « Se connecter avec Spotify » → retour à l'accueil avec votre nom.
+1. `http://127.0.0.1:8000` → « Se connecter avec Spotify » → retour à l'accueil avec votre nom.
 2. « Créer un salon » → `/room/XXXX/host`. Dans un autre navigateur, la même URL renvoie à l'accueil.
 3. Créer un invité et récupérer son jeton :
 
 ```bash
-curl -s -X POST http://127.0.0.1/api/rooms/XXXX/guests -H 'Accept: application/json' -H 'Content-Type: application/json' -d '{"nickname":"Test"}'
+curl -s -X POST http://127.0.0.1:8000/api/rooms/XXXX/guests -H 'Accept: application/json' -H 'Content-Type: application/json' -d '{"nickname":"Test"}'
 ```
 
 4. Chercher (remplacez `JETON`) : la réponse contient `results` et `sources`.
 
 ```bash
-curl -s 'http://127.0.0.1/api/rooms/XXXX/search?q=daft+punk' -H 'Accept: application/json' -H 'X-Guest-Token: JETON'
+curl -s 'http://127.0.0.1:8000/api/rooms/XXXX/search?q=daft+punk' -H 'Accept: application/json' -H 'X-Guest-Token: JETON'
 ```
 
 5. Ajouter un résultat, puis le rejouer : 201 la première fois, **409** `duplicate_track` la seconde.
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1/api/rooms/XXXX/queue -H 'Accept: application/json' -H 'Content-Type: application/json' -H 'X-Guest-Token: JETON' -d '{"provider":"youtube","provider_track_id":"ID_DU_RESULTAT"}'
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8000/api/rooms/XXXX/queue -H 'Accept: application/json' -H 'Content-Type: application/json' -H 'X-Guest-Token: JETON' -d '{"provider":"youtube","provider_track_id":"ID_DU_RESULTAT"}'
 ```
 
 6. Sans jeton, la recherche répond **401** ; avec deux caractères, **422**.

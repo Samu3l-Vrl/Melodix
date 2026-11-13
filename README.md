@@ -38,18 +38,18 @@ Ce guide vous emmène de zéro à une soirée qui fonctionne. Comptez **environ 
    │                                               │
    │   PC (Docker + l'application)  ──HDMI──►  TV  │
    │   navigateur ouvert sur                       │
-   │   http://127.0.0.1/room/ABCD/host             │
+   │   http://127.0.0.1:8000/room/ABCD/host        │
    │        ▲            ▲                         │
    │        │ page web   │ temps réel (port 8080)  │
    │        │            │                         │
    │   📱 téléphones des invités                    │
-   │   http://192.168.1.20/room/ABCD/join          │
+   │   http://192.168.1.20:8000/room/ABCD/join     │
    └───────────────────────────────────────────────┘
 ```
 
 Trois points à comprendre avant de commencer :
 
-1. **Le PC qui fait tourner l'application est aussi l'écran hôte.** Spotify n'autorise la connexion sans HTTPS que depuis l'adresse `http://127.0.0.1`, c'est-à-dire depuis la machine elle-même. Branchez ce PC sur la TV en HDMI (ou affichez-le sur un vidéoprojecteur). Le navigateur intégré d'une TV ne convient pas : il ne sait généralement pas lire Spotify (protection DRM).
+1. **Le PC qui fait tourner l'application est aussi l'écran hôte.** Spotify n'autorise la connexion sans HTTPS que depuis l'adresse `http://127.0.0.1:8000`, c'est-à-dire depuis la machine elle-même. Branchez ce PC sur la TV en HDMI (ou affichez-le sur un vidéoprojecteur). Le navigateur intégré d'une TV ne convient pas : il ne sait généralement pas lire Spotify (protection DRM).
 2. **C'est le navigateur de ce PC qui joue la musique.** Les haut-parleurs sont ceux du PC ou de la TV.
 3. **Les téléphones doivent être sur le même Wi-Fi** et pouvoir joindre le PC (étape 8).
 
@@ -151,12 +151,12 @@ Cette application sert à deux choses : connecter l'hôte avec son compte Spotif
    | App name | `Jukebox` (libre) |
    | App description | `Jukebox de soirée` (libre) |
    | Website | laisser vide |
-   | **Redirect URIs** | `http://127.0.0.1/auth/spotify/callback` puis cliquez sur **Add** |
+   | **Redirect URIs** | `http://127.0.0.1:8000/auth/spotify/callback` puis cliquez sur **Add** |
    | **Which API/SDKs are you planning to use?** | cochez **Web API** et **Web Playback SDK** |
 
    Acceptez les conditions et cliquez sur **Save**.
 
-   ⚠️ L'adresse de redirection doit être recopiée **exactement** : `http`, `127.0.0.1` (pas `localhost`, refusé par Spotify), pas de `/` final. Si vous changez de port à l'étape 11, ajoutez le port ici aussi (`http://127.0.0.1:8000/auth/spotify/callback`).
+   ⚠️ L'adresse de redirection doit être recopiée **exactement** : `http`, `127.0.0.1` (pas `localhost`, refusé par Spotify), le port `:8000`, pas de `/` final. Le tableau de bord peut afficher l'avertissement « This redirect URI is not secure » pour une adresse en `http` : pour `127.0.0.1` avec un port, Spotify l'accepte quand même. Vérifiez après **Save** que l'adresse figure bien dans la liste. Si vous changez de port (§11), déclarez la nouvelle adresse ici aussi.
 3. Ouvrez l'application, puis **Settings**. Notez le **Client ID**, cliquez sur **View client secret** et notez le **Client secret**.
 4. Onglet **User Management** : ajoutez le nom et l'adresse e-mail du **compte Spotify de l'hôte** (celui qui sera branché sur la TV, s'il est différent du vôtre). Une application nouvellement créée est en « mode développement » : seuls les comptes listés ici peuvent s'y connecter, dans une limite fixée par Spotify (indiquée sur cette page). Les invités, eux, n'ont pas besoin d'y figurer : ils ne se connectent jamais à Spotify.
 
@@ -197,8 +197,8 @@ Tout le reste est déjà réglé pour Sail. Pour information, les autres réglag
 
 | Variable | Valeur par défaut | Quand la changer |
 | --- | --- | --- |
-| `APP_URL` | `http://127.0.0.1` | Si vous changez de port (voir « Le port 80 est déjà utilisé » au §11) |
-| `APP_PORT` | `80` | Idem |
+| `APP_URL` | `http://127.0.0.1:8000` | Si vous changez de port (voir « Le port 8000 est déjà utilisé » au §11) |
+| `APP_PORT` | `8000` | Idem |
 | `JUKEBOX_PUBLIC_URL` | vide | À l'étape 8, pour les téléphones |
 | `SPOTIFY_MARKET` | `FR` | Si vous êtes dans un autre pays (code à 2 lettres : `BE`, `CH`, `CA`…) |
 | `YOUTUBE_DAILY_QUOTA` | `9500` | Si Google vous a accordé un quota plus élevé |
@@ -251,7 +251,7 @@ Vous devez voir `laravel.test`, `reverb`, `scheduler`, `pgsql` et `redis` à l'�
 
 | Service | Rôle |
 | --- | --- |
-| `laravel.test` | L'application web (port 80) et le serveur Vite (port 5173) |
+| `laravel.test` | L'application web (port 8000) et le serveur Vite (port 5173) |
 | `reverb` | Le serveur temps réel (WebSocket, port 8080) |
 | `scheduler` | Ferme les salons inutilisés toutes les heures |
 | `pgsql` | La base de données |
@@ -307,7 +307,7 @@ Pour le premier essai sur le PC, l'une ou l'autre convient. Si vous hésitez, pr
 
 ### Ce que vous devez voir
 
-Ouvrez **http://127.0.0.1** dans le navigateur du PC (et pas `localhost`). La page d'accueil « Jukebox » s'affiche, avec « Rejoindre un salon » et « Se connecter avec Spotify ».
+Ouvrez **http://127.0.0.1:8000** dans le navigateur du PC (et pas `localhost`). La page d'accueil « Jukebox » s'affiche, avec « Rejoindre un salon » et « Se connecter avec Spotify ».
 
 ---
 
@@ -315,7 +315,7 @@ Ouvrez **http://127.0.0.1** dans le navigateur du PC (et pas `localhost`). La pa
 
 Faites ce test sur le PC seul avant d'impliquer des téléphones.
 
-**Onglet 1 — l'hôte**, fenêtre normale, sur `http://127.0.0.1` :
+**Onglet 1 — l'hôte**, fenêtre normale, sur `http://127.0.0.1:8000` :
 
 1. Cliquez sur **Se connecter avec Spotify**, connectez-vous et acceptez les autorisations. Vous revenez sur l'accueil avec votre nom.
    - Un message jaune « compte non Premium » signifie que seul YouTube sera disponible.
@@ -324,7 +324,7 @@ Faites ce test sur le PC seul avant d'impliquer des téléphones.
 
 **Onglet 2 — un invité**, dans une **fenêtre de navigation privée** (Ctrl+Maj+N) pour ne pas partager la connexion de l'hôte :
 
-4. Ouvrez `http://127.0.0.1/room/KZPW/join` (avec votre code). Pour simuler un téléphone : F12, puis l'icône téléphone/tablette.
+4. Ouvrez `http://127.0.0.1:8000/room/KZPW/join` (avec votre code). Pour simuler un téléphone : F12, puis l'icône téléphone/tablette.
 5. Saisissez un pseudo. Sur l'onglet hôte apparaît « … a rejoint la soirée ».
 6. Tapez une recherche d'au moins 3 caractères. Après une courte pause, des résultats apparaissent avec un badge **Spotify** ou **YouTube**.
 7. Touchez **+** sur un résultat. Le bouton passe à **Ajouté** et **la musique démarre toute seule sur l'onglet hôte**.
@@ -334,7 +334,7 @@ Essayez ensuite, sur l'écran hôte : pause / lecture, cliquer dans la barre de 
 
 Si une étape échoue, voyez le [dépannage](#11-dépannage).
 
-Sans clés d'API, vous pouvez quand même découvrir l'interface invité avec des données de démonstration : `sail artisan db:seed` crée un salon avec trois morceaux et affiche son code (ouvrez alors `http://127.0.0.1/room/CODE/join`).
+Sans clés d'API, vous pouvez quand même découvrir l'interface invité avec des données de démonstration : `sail artisan db:seed` crée un salon avec trois morceaux et affiche son code (ouvrez alors `http://127.0.0.1:8000/room/CODE/join`).
 
 ---
 
@@ -351,7 +351,7 @@ Sans clés d'API, vous pouvez quand même découvrir l'interface invité avec de
 Dans `.env` :
 
 ```dotenv
-JUKEBOX_PUBLIC_URL=http://192.168.1.20
+JUKEBOX_PUBLIC_URL=http://192.168.1.20:8000
 ```
 
 Le QR code affiché sur l'écran hôte pointera désormais vers cette adresse. Rechargez l'écran hôte pour le voir changer (aucun redémarrage nécessaire).
@@ -363,7 +363,7 @@ Conseil : l'adresse IP peut changer d'un jour à l'autre. Dans l'interface de vo
 Le pare-feu Windows bloque par défaut les connexions venant des téléphones. Dans PowerShell **en administrateur** :
 
 ```powershell
-New-NetFirewallRule -DisplayName "Jukebox" -Direction Inbound -Protocol TCP -LocalPort 80,8080 -Action Allow -Profile Private
+New-NetFirewallRule -DisplayName "Jukebox" -Direction Inbound -Protocol TCP -LocalPort 8000,8080 -Action Allow -Profile Private
 ```
 
 Vérifiez aussi que votre réseau Wi-Fi est en profil **Privé** : Paramètres → Réseau et Internet → Wi-Fi → (votre réseau) → Type de profil réseau → **Réseau privé**.
@@ -377,7 +377,7 @@ networkingMode=mirrored
 
 puis lancez `wsl --shutdown` dans PowerShell et rouvrez Ubuntu (Windows 11 22H2 ou plus récent).
 
-macOS et Linux : autorisez les ports 80 et 8080 si un pare-feu est actif.
+macOS et Linux : autorisez les ports 8000 et 8080 si un pare-feu est actif.
 
 ### 8.4 Compiler l'interface
 
@@ -391,7 +391,7 @@ sail npm run build
 
 Le téléphone doit être connecté **au même Wi-Fi** que le PC.
 
-1. Dans le navigateur du téléphone, ouvrez `http://192.168.1.20/up` (votre IP). Une page « Application up » doit s'afficher. Sinon : pare-feu, mauvaise IP, ou réseau différent (voir §11).
+1. Dans le navigateur du téléphone, ouvrez `http://192.168.1.20:8000/up` (votre IP). Une page « Application up » doit s'afficher. Sinon : pare-feu, mauvaise IP, ou réseau différent (voir §11).
 2. Scannez le QR code de l'écran hôte avec l'appareil photo. La page invité s'ouvre.
 3. L'indicateur Wi-Fi en haut à droite de la page invité doit être **vert**. S'il reste orange ou rouge, le port 8080 (temps réel) est bloqué.
 4. Ajoutez un morceau : il doit apparaître sur la TV.
@@ -408,7 +408,7 @@ Le téléphone doit être connecté **au même Wi-Fi** que le PC.
 - [ ] `sail npm run build` a été lancé depuis la dernière modification.
 - [ ] L'adresse IP du PC n'a pas changé (sinon mettez à jour `JUKEBOX_PUBLIC_URL`).
 - [ ] Les invités se connecteront au **Wi-Fi principal**, pas à un « Wi-Fi invités » : ces réseaux isolent souvent les appareils les uns des autres, et les téléphones ne verraient pas le PC.
-- [ ] Ouvrez `http://127.0.0.1`, reprenez votre salon ou créez-en un, cliquez sur **Démarrer la session**.
+- [ ] Ouvrez `http://127.0.0.1:8000`, reprenez votre salon ou créez-en un, cliquez sur **Démarrer la session**.
 - [ ] Mettez le navigateur en plein écran (F11) et laissez **cet onglet au premier plan** : en arrière-plan, le navigateur ralentit l'onglet et l'enchaînement des morceaux peut prendre du retard.
 - [ ] Testez avec votre propre téléphone : scan du QR code, ajout d'un morceau.
 
@@ -478,7 +478,8 @@ Premier réflexe dans tous les cas : regardez les journaux avec `tail -n 50 stor
 | --- | --- | --- |
 | `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock` | Votre utilisateur n'est pas dans le groupe `docker` | `sudo groupadd -f docker`, puis `sudo usermod -aG docker $USER`, puis `wsl --shutdown` dans PowerShell et rouvrez Ubuntu (ou `newgrp docker` pour le terminal courant). N'utilisez pas `sudo docker` : les fichiers créés appartiendraient à root |
 | `docker: command not found` ou `Cannot connect to the Docker daemon` | Docker Desktop n'est pas lancé, ou l'intégration WSL n'est pas activée | Lancez Docker Desktop ; vérifiez *Settings → Resources → WSL integration* |
-| `Bind for 0.0.0.0:80 failed: port is already allocated` | Un autre logiciel utilise le port 80 (IIS, Skype, autre serveur web) | Voir « Le port 80 est déjà utilisé » ci-dessous |
+| `Bind for 0.0.0.0:8000 failed: port is already allocated` | Un autre logiciel utilise le port 8000 | Voir « Le port 8000 est déjà utilisé » ci-dessous |
+| `http://127.0.0.1:8000` affiche « Index of / », une liste de fichiers ou un autre site | Un programme Windows écoute déjà ce port sur `127.0.0.1` et passe avant Docker (XAMPP, WAMP, IIS, Live Server…) | Changez de port (ci-dessous). Pour identifier le programme, dans PowerShell : `Get-Process -Id (Get-NetTCPConnection -LocalPort 8000 -State Listen).OwningProcess` |
 | `Bind for 0.0.0.0:5432 failed` (ou 6379) | Un PostgreSQL (ou Redis) est déjà installé sur la machine | Dans `.env` : `FORWARD_DB_PORT=5433` (ou `FORWARD_REDIS_PORT=6380`), puis `sail up -d` |
 | `sail: command not found` | L'alias n'est pas chargé | `source ~/.bashrc`, ou utilisez `./vendor/bin/sail` |
 | `vendor/bin/sail: No such file or directory` | L'étape 6.1 n'a pas été faite | Lancez la commande `docker run … composer install` du §6.1 |
@@ -487,14 +488,14 @@ Premier réflexe dans tous les cas : regardez les journaux avec `tail -n 50 stor
 | Erreur `Vite manifest not found` | L'interface n'a pas été compilée | `sail npm run build` |
 | Tout est très lent (Windows) | Le projet est sous `/mnt/c/…` | Déplacez-le dans `~/` (voir §1) |
 
-**Le port 80 est déjà utilisé.** Choisissez un autre port, par exemple 8000. Dans `.env` :
+**Le port 8000 est déjà utilisé.** Choisissez un autre port, par exemple 8001 (pas 8080, pris par Reverb). Dans `.env` :
 
 ```dotenv
-APP_PORT=8000
-APP_URL=http://127.0.0.1:8000
+APP_PORT=8001
+APP_URL=http://127.0.0.1:8001
 ```
 
-Dans le tableau de bord Spotify, ajoutez la Redirect URI `http://127.0.0.1:8000/auth/spotify/callback`. Pour les téléphones, `JUKEBOX_PUBLIC_URL=http://192.168.1.20:8000` et ouvrez le port 8000 dans le pare-feu au lieu du 80. Puis `sail up -d` et ouvrez `http://127.0.0.1:8000`.
+Dans le tableau de bord Spotify, ajoutez la Redirect URI `http://127.0.0.1:8001/auth/spotify/callback`. Pour les téléphones, `JUKEBOX_PUBLIC_URL=http://192.168.1.20:8001` et ouvrez le port 8001 dans le pare-feu au lieu du 8000. Puis `sail up -d`, `sail restart reverb scheduler`, et ouvrez `http://127.0.0.1:8001`.
 
 ### Connexion Spotify
 
@@ -503,7 +504,7 @@ Dans le tableau de bord Spotify, ajoutez la Redirect URI `http://127.0.0.1:8000/
 | Page Spotify « INVALID_CLIENT: Invalid redirect URI » | L'adresse de redirection ne correspond pas exactement | Comparez la Redirect URI du tableau de bord avec `APP_URL` + `/auth/spotify/callback` (même port, `127.0.0.1`, pas de `/` final) |
 | Page Spotify « INVALID_CLIENT: Invalid client » | Client ID erroné | Recopiez `SPOTIFY_CLIENT_ID` |
 | Retour à l'accueil avec « La connexion à Spotify a échoué » | Client secret erroné, ou compte non autorisé | Recopiez `SPOTIFY_CLIENT_SECRET` ; ajoutez le compte dans *User Management* (§3, point 4) ; détails dans `storage/logs/laravel.log` |
-| Vous avez ouvert `http://localhost` et la connexion échoue | Spotify n'accepte que `127.0.0.1` | Utilisez toujours `http://127.0.0.1` sur le PC |
+| Vous avez ouvert `http://localhost:8000` et la connexion échoue | Spotify n'accepte que `127.0.0.1` | Utilisez toujours `http://127.0.0.1:8000` sur le PC |
 | Message « compte non Premium » alors que vous l'êtes | Abonnement souscrit après la connexion | Déconnectez-vous et reconnectez-vous : le statut est relu à chaque connexion |
 
 ### Lecture
