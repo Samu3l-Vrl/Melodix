@@ -85,7 +85,13 @@ Trois points à comprendre avant de commencer :
    docker run --rm hello-world
    ```
 
-   Vous devez lire « Hello from Docker! ».
+   Vous devez lire « Hello from Docker! ». Si vous obtenez `permission denied … docker.sock`, ajoutez votre utilisateur au groupe `docker` :
+
+   ```bash
+   sudo groupadd -f docker && sudo usermod -aG docker $USER
+   ```
+
+   puis lancez `wsl --shutdown` dans PowerShell, rouvrez Ubuntu et refaites le test.
 
 > **Important sous Windows :** toutes les commandes de ce guide se tapent dans le terminal **Ubuntu**, pas dans PowerShell (sauf mention contraire), et le projet doit être rangé dans votre dossier Linux (`~/…`), **pas** dans `/mnt/c/…`. Sous `/mnt/c`, tout est 5 à 10 fois plus lent et le rechargement automatique du code ne fonctionne pas.
 
@@ -470,6 +476,7 @@ Premier réflexe dans tous les cas : regardez les journaux avec `tail -n 50 stor
 
 | Symptôme | Cause probable | Solution |
 | --- | --- | --- |
+| `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock` | Votre utilisateur n'est pas dans le groupe `docker` | `sudo groupadd -f docker`, puis `sudo usermod -aG docker $USER`, puis `wsl --shutdown` dans PowerShell et rouvrez Ubuntu (ou `newgrp docker` pour le terminal courant). N'utilisez pas `sudo docker` : les fichiers créés appartiendraient à root |
 | `docker: command not found` ou `Cannot connect to the Docker daemon` | Docker Desktop n'est pas lancé, ou l'intégration WSL n'est pas activée | Lancez Docker Desktop ; vérifiez *Settings → Resources → WSL integration* |
 | `Bind for 0.0.0.0:80 failed: port is already allocated` | Un autre logiciel utilise le port 80 (IIS, Skype, autre serveur web) | Voir « Le port 80 est déjà utilisé » ci-dessous |
 | `Bind for 0.0.0.0:5432 failed` (ou 6379) | Un PostgreSQL (ou Redis) est déjà installé sur la machine | Dans `.env` : `FORWARD_DB_PORT=5433` (ou `FORWARD_REDIS_PORT=6380`), puis `sail up -d` |
