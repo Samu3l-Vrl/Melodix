@@ -21,6 +21,7 @@ Ce guide vous emmène de zéro à une soirée qui fonctionne. Comptez **environ 
 5. [Configurer le fichier `.env`](#5-configurer-le-fichier-env)
 6. [Installer et démarrer](#6-installer-et-démarrer)
 7. [Premier essai sur votre PC](#7-premier-essai-sur-votre-pc)
+   - [Musique de fond (playlist)](#7-bis-musique-de-fond-playlist)
 8. [Ouvrir l'accès aux téléphones](#8-ouvrir-laccès-aux-téléphones)
 9. [Le jour de la soirée](#9-le-jour-de-la-soirée)
 10. [Commandes du quotidien](#10-commandes-du-quotidien)
@@ -338,6 +339,31 @@ Sans clés d'API, vous pouvez quand même découvrir l'interface invité avec de
 
 ---
 
+## 7 bis. Musique de fond (playlist)
+
+Pour que la musique ne s'arrête jamais, choisissez une playlist en créant le salon : elle joue quand la file des invités est vide. Les invités, eux, ne font qu'ajouter des morceaux, qui **passent toujours avant** le titre suivant de la playlist. Une fois la file vidée, la playlist reprend là où elle s'était arrêtée, et recommence au début quand elle est finie.
+
+**À la création du salon :** sur l'accueil, cochez **Musique de fond**, puis :
+- choisissez une de **vos playlists Spotify** dans la liste (compte Premium nécessaire), ou
+- collez le **lien de partage** d'une playlist Spotify ou YouTube :
+  - Spotify : application → playlist → ⋯ → Partager → Copier le lien (`https://open.spotify.com/playlist/…`) ;
+  - YouTube : page de la playlist → Partager → Copier (`https://www.youtube.com/playlist?list=…`).
+
+Cochez **Lecture aléatoire** pour mélanger l'ordre. Si la playlist est inutilisable, un message l'explique et aucun salon n'est créé.
+
+**Pendant la soirée**, sur l'écran hôte, le bandeau **Musique de fond** au-dessus de la file permet de **changer** de playlist ou de la **retirer** (la musique s'arrêtera alors à la fin de la file).
+
+Bon à savoir :
+- Si vous vous étiez connecté avec Spotify **avant** cette fonctionnalité, déconnectez-vous puis reconnectez-vous une fois : Spotify doit vous redemander l'autorisation de lire vos playlists. Sans cela, vos playlists privées n'apparaissent pas.
+- Spotify ne donne pas accès à ses playlists **éditoriales ou générées** (« Daily Mix », « Top 50 France », « Discover Weekly »…) aux nouvelles applications. Utilisez une playlist créée par vous ou par un autre utilisateur ; vous pouvez aussi copier les titres d'une playlist éditoriale dans une playlist à vous.
+- Les « mix » générés par YouTube (`list=RD…`) ne sont pas lisibles non plus ; les playlists publiques et non répertoriées le sont.
+- Une playlist YouTube coûte très peu de quota : environ 2 unités par tranche de 50 titres, contre 101 pour une recherche.
+- Au plus 500 titres sont importés (réglable avec `JUKEBOX_PLAYLIST_MAX_TRACKS`). Les vidéos supprimées, privées ou non intégrables sont ignorées.
+- Un titre joué depuis moins d'une heure (par exemple parce qu'un invité l'a demandé) est sauté par la playlist.
+- Les titres Spotify d'une playlist sont sautés si l'hôte n'est pas Premium.
+
+---
+
 ## 8. Ouvrir l'accès aux téléphones
 
 ### 8.1 Trouver l'adresse IP du PC sur le Wi-Fi
@@ -526,11 +552,21 @@ Dans le tableau de bord Spotify, ajoutez la Redirect URI `http://127.0.0.1:8001/
 | Aucun résultat, aucune erreur | Moins de 3 caractères | Tapez au moins 3 caractères |
 | Résultats Spotify d'un autre pays ou absents | Mauvais marché | Ajustez `SPOTIFY_MARKET` puis `sail restart reverb scheduler` |
 
+### Musique de fond
+
+| Symptôme | Cause probable | Solution |
+| --- | --- | --- |
+| « Playlist introuvable » avec un lien Spotify | Playlist éditoriale ou générée par Spotify, ou playlist privée d'un autre compte | Utilisez une de vos playlists, ou copiez les titres dans une nouvelle playlist |
+| Vos playlists privées n'apparaissent pas dans la liste | Autorisation accordée avant l'ajout de la fonctionnalité | Déconnectez-vous puis reconnectez-vous avec Spotify |
+| Pas de liste de playlists Spotify, seulement un champ de lien | Compte non Premium | Utilisez une playlist YouTube |
+| « Playlist introuvable ou privée » avec un lien YouTube | Playlist privée, ou « mix » généré (`list=RD…`) | Passez la playlist en « Non répertoriée » ou « Publique » dans YouTube |
+| La musique s'arrête quand la file est vide | Pas de musique de fond | Bandeau « Musique de fond » sur l'écran hôte → **Choisir une playlist** |
+
 ### Téléphones et temps réel
 
 | Symptôme | Cause probable | Solution |
 | --- | --- | --- |
-| Le QR code pointe vers `127.0.0.1` | `JUKEBOX_PUBLIC_URL` est vide | Renseignez-le (§8.2) et rechargez l'écran hôte |
+| « This site can't be reached » en scannant le QR code ; l'écran hôte affiche « Cette adresse ne fonctionne que sur ce PC » | Le QR code pointe vers `127.0.0.1`, qui désigne le téléphone lui-même : `JUKEBOX_PUBLIC_URL` est vide | Renseignez-le avec l'IP du PC et le port (§8.2), puis rechargez l'écran hôte |
 | Le téléphone n'arrive pas à ouvrir la page | Pare-feu, mauvaise IP, pas le même Wi-Fi, ou « Wi-Fi invités » isolé | Testez `http://IP/up` depuis le téléphone (§8.5) ; vérifiez le profil réseau « Privé » (§8.3) |
 | Page blanche sur le téléphone, alors que le PC l'affiche | L'interface est servie par le serveur de développement | Arrêtez `sail npm run dev`, lancez `sail npm run build`. Si le problème persiste, supprimez le fichier `public/hot` (`rm public/hot`) |
 | Indicateur « Reconnexion… » ou « Hors ligne » permanent | Reverb arrêté, ou port 8080 bloqué | `sail ps` (le service `reverb` doit tourner) ; `sail logs reverb` ; ouvrez le port 8080 dans le pare-feu |

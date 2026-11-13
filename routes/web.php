@@ -3,6 +3,7 @@
 use App\Http\Controllers\Auth\SpotifyAuthController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\Host\PlaybackController;
+use App\Http\Controllers\Host\PlaylistController;
 use App\Http\Controllers\Host\QueueController as HostQueueController;
 use App\Http\Controllers\Host\SpotifyTokenController;
 use App\Http\Controllers\RoomController;
@@ -41,6 +42,9 @@ Route::middleware('auth')->group(function () {
     // Jeton pour le callback getOAuthToken du Web Playback SDK.
     Route::get('/host/spotify/token', SpotifyTokenController::class)->name('host.spotify.token');
 
+    // Playlists Spotify de l'hôte, pour choisir une playlist de fond.
+    Route::get('/host/spotify/playlists', [PlaylistController::class, 'index'])->name('host.spotify.playlists');
+
     // Actions sur un salon : l'appartenance est vérifiée par RoomPolicy::control
     // (dans les Form Requests ou via Gate::authorize).
     Route::prefix('/host/rooms/{room}')
@@ -54,6 +58,9 @@ Route::middleware('auth')->group(function () {
             Route::delete('/queue/{item}', [HostQueueController::class, 'destroy'])
                 ->whereNumber('item')
                 ->name('queue.destroy');
+
+            Route::put('/playlist', [PlaylistController::class, 'update'])->name('playlist.update');
+            Route::delete('/playlist', [PlaylistController::class, 'destroy'])->name('playlist.destroy');
 
             Route::post('/close', [RoomController::class, 'close'])->name('close');
         });

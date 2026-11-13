@@ -2,11 +2,13 @@
 
 namespace App\Services\Music;
 
+use App\Data\PlaylistData;
 use App\Data\ProviderRequest;
 use App\Data\TrackData;
 use App\Enums\Provider;
 use App\Exceptions\ProviderException;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -98,6 +100,113 @@ class SpotifyProvider implements MusicProvider
     }
 
     /**
+     * Playlists de l'utilisateur (les siennes et celles qu'il suit), pour le sélecteur de l'hôte.
+     * Utilise le jeton PERSONNEL de l'hôte (scope playlist-read-private pour les playlists privées).
+     *
+     * @return list<array{id: string, name: string, image_url: string|null, track_count: int|null, owner: string|null}>
+     */
+    public function userPlaylists(string $userToken, int $limit = 50): array
+    {
+        $response = $this->userRequest($userToken)->get(self::API_URL.'/me/playlists', ['limit' => min(50, $limit)]);
+
+        if ($response->failed()) {
+            throw new ProviderException("Spotify me/playlists a répondu HTTP {$response->status()}.");
+        }
+
+        $playlists = [];
+
+        foreach ($response->json('items', []) as $item) {
+            if (! is_array($item) || empty($item['id'])) {
+                continue;
+            }
+
+            // Le nombre de titres a été exposé sous « tracks.total » puis « items.total » selon les versions de l'API.
+            $total = $item['tracks']['total'] ?? $item['items']['total'] ?? null;
+
+            $playlists[] = [
+                'id' => (string) $item['id'],
+                'name' => (string) ($item['name'] ?? 'Sans titre'),
+                'image_url' => $item['images'][0]['url'] ?? null,
+                'track_count' => is_numeric($total) ? (int) $total : null,
+                'owner' => $item['owner']['display_name'] ?? null,
+            ];
+        }
+
+        return $playlists;
+    }
+
+    /**
+     * Lit une playlist complète (jusqu'à $maxTracks morceaux) avec le jeton personnel de l'hôte.
+     * Null si Spotify ne la trouve pas ou n'y donne pas accès.
+     *
+     * Attention : depuis fin 2024, Spotify refuse aux nouvelles applications l'accès aux playlists
+     * éditoriales et générées (« Daily Mix », « Top 50 »…) : elles répondent 404 comme une playlist inexistante.
+     */
+    public function playlist(string $playlistId, string $userToken, int $maxTracks): ?PlaylistData
+    {
+        $http = $this->userRequest($userToken);
+        $meta = $http->get(self::API_URL.'/playlists/'.rawurlencode($playlistId), [
+            'market' => config('services.spotify.market'),
+            'fields' => 'id,name,images',
+        ]);
+
+        if (in_array($meta->status(), [403, 404], true)) {
+            return null;
+        }
+
+        if ($meta->failed()) {
+            throw new ProviderException("Spotify playlists a répondu HTTP {$meta->status()}.");
+        }
+
+        $tracks = [];
+        $url = self::API_URL.'/playlists/'.rawurlencode($playlistId).'/tracks';
+        $query = ['market' => config('services.spotify.market'), 'limit' => 100, 'offset' => 0];
+
+        // Pagination : 100 morceaux par page, jusqu'à $maxTracks.
+        while (count($tracks) < $maxTracks) {
+            $page = $http->get($url, $query);
+
+            if ($page->failed()) {
+                throw new ProviderException("Spotify playlist tracks a répondu HTTP {$page->status()}.");
+            }
+
+            $items = $page->json('items', []);
+
+            foreach ($items as $entry) {
+                // Les entrées peuvent être des épisodes de podcast ou des fichiers locaux : seuls les morceaux comptent.
+                $item = $entry['track'] ?? $entry['item'] ?? null;
+
+                if (is_array($item) && ($item['type'] ?? 'track') === 'track' && ! ($item['is_local'] ?? false)) {
+                    $track = $this->toTrackData($item);
+
+                    if ($track !== null && $track->durationMs > 0) {
+                        $tracks[] = $track;
+                    }
+                }
+            }
+
+            if ($page->json('next') === null || $items === []) {
+                break;
+            }
+
+            $query['offset'] += 100;
+        }
+
+        return new PlaylistData(
+            provider: Provider::Spotify,
+            providerPlaylistId: $playlistId,
+            name: (string) ($meta->json('name') ?? 'Playlist Spotify'),
+            imageUrl: $meta->json('images.0.url'),
+            tracks: array_slice($tracks, 0, $maxTracks),
+        );
+    }
+
+    private function userRequest(string $userToken): PendingRequest
+    {
+        return Http::withToken($userToken)->timeout((int) config('jukebox.search.timeout'));
+    }
+
+    /**
      * Jeton d'application (client credentials), partagé par toutes les recherches.
      * Mis en cache jusqu'à 60 s avant son expiration pour ne jamais servir un jeton mourant.
      */
@@ -135,7 +244,7 @@ class SpotifyProvider implements MusicProvider
      *
      * @param  array<string, mixed>|null  $item
      */
-    private function toTrackData(?array $item): ?TrackData
+    public function toTrackData(?array $item): ?TrackData
     {
         // `is_playable: false` (avec market) = morceau indisponible dans le pays : inutile de le proposer.
         if (! is_array($item) || empty($item['id']) || ($item['is_playable'] ?? true) === false) {

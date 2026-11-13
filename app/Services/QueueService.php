@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Enums\PlaybackStatus;
+use App\Enums\Provider;
+use App\Enums\QueueItemSource;
 use App\Enums\QueueItemStatus;
 use App\Events\PlaybackStateChanged;
 use App\Events\QueueUpdated;
@@ -14,6 +16,7 @@ use App\Models\QueueItem;
 use App\Models\Room;
 use App\Models\Track;
 use App\Models\User;
+use App\Services\Music\ProviderRegistry;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -27,7 +30,10 @@ use Illuminate\Support\Facades\DB;
  */
 class QueueService
 {
-    public function __construct(private readonly RoomBroadcaster $broadcaster) {}
+    public function __construct(
+        private readonly RoomBroadcaster $broadcaster,
+        private readonly ProviderRegistry $registry,
+    ) {}
 
     /**
      * Ajoute un morceau en fin de file (FIFO).
@@ -60,6 +66,7 @@ class QueueService
                 'track_id' => $track->id,
                 'added_by_guest_id' => $author instanceof Guest ? $author->id : null,
                 'added_by_user_id' => $author instanceof User ? $author->id : null,
+                'source' => $author instanceof User ? QueueItemSource::Host : QueueItemSource::Guest,
                 'position' => $position,
                 'status' => QueueItemStatus::Queued,
             ]);
@@ -149,7 +156,8 @@ class QueueService
 
     /**
      * Passe au morceau suivant : clôt le morceau courant avec `$finalStatus`
-     * (played = fin naturelle, skipped = skip ou erreur) et démarre le premier en attente.
+     * (played = fin naturelle, skipped = skip ou erreur) et démarre le premier en attente,
+     * ou, si la file est vide, le prochain morceau de la playlist de fond.
      *
      * IDEMPOTENCE : `$expectedCurrentItemId` est l'id que le client croit être en cours
      * (null = "rien ne joue"). S'il ne correspond pas à l'état réel, quelqu'un a déjà
@@ -167,21 +175,26 @@ class QueueService
                 return false;
             }
 
-            $next = QueueItem::query()
-                ->where('room_id', $locked->id)
-                ->where('status', QueueItemStatus::Queued)
-                ->orderBy('position')
-                ->first();
-
-            // Rien en cours et rien en attente : aucun changement, donc pas de nouvelle version.
-            if ($locked->current_queue_item_id === null && $next === null) {
-                return false;
-            }
-
+            // On clôt d'abord le morceau courant : il ne doit plus compter comme « actif »
+            // quand on cherche le suivant dans la playlist (sinon une playlist d'un seul titre s'arrêterait).
             if ($locked->current_queue_item_id !== null) {
                 QueueItem::query()
                     ->whereKey($locked->current_queue_item_id)
                     ->update(['status' => $finalStatus, 'played_at' => now()]);
+            }
+
+            // Priorité aux invités : le premier morceau en attente…
+            $next = QueueItem::query()
+                ->where('room_id', $locked->id)
+                ->where('status', QueueItemStatus::Queued)
+                ->orderBy('position')
+                ->first()
+                // … sinon, le prochain morceau de la playlist de fond.
+                ?? $this->nextFromPlaylist($locked);
+
+            // Rien en cours et rien à jouer : aucun changement, donc pas de nouvelle version.
+            if ($locked->current_queue_item_id === null && $next === null) {
+                return false;
             }
 
             if ($next !== null) {
@@ -208,6 +221,83 @@ class QueueService
         }
 
         return $changed;
+    }
+
+    /**
+     * Tire le prochain morceau de la playlist de fond et le place dans la file (statut queued,
+     * l'appelant le passe à playing). Avance le curseur, qui revient au début en fin de playlist.
+     *
+     * Sont sautés : les morceaux déjà en file ou en cours, ceux joués dans l'heure (sauf s'il ne reste
+     * rien d'autre), et ceux d'une source indisponible dans ce salon (Spotify sans hôte Premium).
+     * Si aucun n'est jouable : null.
+     *
+     * À appeler sous le verrou du salon.
+     */
+    private function nextFromPlaylist(Room $locked): ?QueueItem
+    {
+        if ($locked->playlist_id === null) {
+            return null;
+        }
+
+        /** @var list<array{track_id: int, provider: string}> $entries */
+        $entries = DB::table('playlist_tracks')
+            ->join('tracks', 'tracks.id', '=', 'playlist_tracks.track_id')
+            ->where('playlist_tracks.playlist_id', $locked->playlist_id)
+            ->orderBy('playlist_tracks.position')
+            ->get(['playlist_tracks.track_id', 'tracks.provider'])
+            ->map(fn ($row) => ['track_id' => (int) $row->track_id, 'provider' => (string) $row->provider])
+            ->all();
+
+        $count = count($entries);
+
+        if ($count === 0) {
+            return null;
+        }
+
+        $active = QueueItem::query()
+            ->where('room_id', $locked->id)
+            ->whereIn('status', QueueItemStatus::active())
+            ->pluck('track_id')
+            ->all();
+
+        // Morceaux joués récemment, quelle que soit leur origine : évite qu'un titre ajouté par un invité
+        // soit rejoué par la playlist juste après.
+        $recent = QueueItem::query()
+            ->where('room_id', $locked->id)
+            ->whereIn('status', [QueueItemStatus::Played, QueueItemStatus::Skipped])
+            ->where('played_at', '>=', now()->subMinutes((int) config('jukebox.playlist.recent_minutes')))
+            ->pluck('track_id')
+            ->all();
+
+        $locked->loadMissing('host');
+
+        // Deux passes d'un tour complet chacune, en partant du curseur :
+        //  1) en écartant aussi les morceaux joués récemment ;
+        //  2) sinon (playlist courte qui boucle), en les acceptant.
+        foreach ([array_merge($active, $recent), $active] as $excluded) {
+            for ($offset = 0; $offset < $count; $offset++) {
+                $index = ($locked->playlist_position + $offset) % $count;
+                $entry = $entries[$index];
+
+                if (in_array($entry['track_id'], $excluded, true)
+                    || ! $this->registry->isEnabledFor(Provider::from($entry['provider']), $locked)) {
+                    continue;
+                }
+
+                $locked->playlist_position = ($index + 1) % $count;
+
+                return QueueItem::create([
+                    'room_id' => $locked->id,
+                    'track_id' => $entry['track_id'],
+                    'source' => QueueItemSource::Playlist,
+                    'playlist_id' => $locked->playlist_id,
+                    'position' => (int) QueueItem::query()->where('room_id', $locked->id)->max('position') + 1,
+                    'status' => QueueItemStatus::Queued,
+                ]);
+            }
+        }
+
+        return null;
     }
 
     /**

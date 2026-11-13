@@ -23,12 +23,15 @@ use Illuminate\Support\Carbon;
  * @property RoomStatus $status
  * @property PlaybackStatus $playback_status
  * @property int|null $current_queue_item_id
+ * @property int|null $playlist_id
+ * @property int $playlist_position
  * @property int $position_ms
  * @property CarbonImmutable|null $position_updated_at
  * @property int $version
  * @property Carbon|null $last_activity_at
  * @property-read User $host
  * @property-read QueueItem|null $currentItem
+ * @property-read Playlist|null $playlist
  */
 class Room extends Model
 {
@@ -42,6 +45,8 @@ class Room extends Model
         'status',
         'playback_status',
         'current_queue_item_id',
+        'playlist_id',
+        'playlist_position',
         'position_ms',
         'position_updated_at',
         'version',
@@ -58,6 +63,7 @@ class Room extends Model
         'status' => 'open',
         'playback_status' => 'idle',
         'position_ms' => 0,
+        'playlist_position' => 0,
         'version' => 0,
     ];
 
@@ -68,6 +74,8 @@ class Room extends Model
             'status' => RoomStatus::class,
             'playback_status' => PlaybackStatus::class,
             'current_queue_item_id' => 'integer',
+            'playlist_id' => 'integer',
+            'playlist_position' => 'integer',
             'position_ms' => 'integer',
             'position_updated_at' => AsPreciseDateTime::class,
             'version' => 'integer',
@@ -117,6 +125,16 @@ class Room extends Model
         return $this->belongsTo(QueueItem::class, 'current_queue_item_id');
     }
 
+    /**
+     * Playlist de fond active (jouée quand la file des invités est vide).
+     *
+     * @return BelongsTo<Playlist, $this>
+     */
+    public function playlist(): BelongsTo
+    {
+        return $this->belongsTo(Playlist::class);
+    }
+
     public function isOpen(): bool
     {
         return $this->status === RoomStatus::Open;
@@ -162,12 +180,15 @@ class Room extends Model
     {
         return $this->load([
             'host',
+            'playlist',
             'currentItem.track',
             'currentItem.guest',
             'currentItem.user',
+            'currentItem.playlist',
             'queue.track',
             'queue.guest',
             'queue.user',
+            'queue.playlist',
         ]);
     }
 }

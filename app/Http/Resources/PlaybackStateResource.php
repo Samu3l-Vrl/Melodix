@@ -26,13 +26,17 @@ class PlaybackStateResource extends JsonResource
             // Le client extrapole lui-même (voir resources/js/lib/time.ts).
             'position_ms' => $this->position_ms,
             'position_updated_at' => $this->position_updated_at?->getTimestampMs(),
+            // Playlist de fond : jouée quand la file des invités est vide.
+            'playlist' => $this->playlist !== null
+                ? (new PlaylistResource($this->playlist))->resolve($request)
+                : null,
         ];
     }
 
     /** @return array<string, mixed> */
     public static function plain(Room $room): array
     {
-        $room->loadMissing(['currentItem.track', 'currentItem.guest', 'currentItem.user']);
+        $room->loadMissing(['playlist', 'currentItem.track', 'currentItem.guest', 'currentItem.user', 'currentItem.playlist']);
 
         return (new self($room))->resolve(request());
     }

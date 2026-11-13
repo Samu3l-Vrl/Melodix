@@ -84,7 +84,8 @@ Aucune ambiguïté n'était bloquante ; voici les décisions prises sans vous co
 | Ajout | Le client envoie (source, identifiant) ; métadonnées résolues côté serveur |
 | Payload des events | Deltas (`added` / `removed` / `reordered`), pas la file entière |
 | Canal privé de l'hôte | Sert à l'event `GuestJoined` (ajouté : le cahier des charges ne listait que deux events) |
-| Démarrage de la lecture | L'écran hôte demande « play » dès que la file n'est plus vide ; le serveur ne démarre jamais seul |
+| Démarrage de la lecture | L'écran hôte demande « play » dès que la file n'est plus vide ou qu'une playlist de fond est définie ; le serveur ne démarre jamais seul |
+| Playlist de fond | Jouée quand la file est vide, priorité aux invités, reprise au titre suivant, boucle en fin de liste ; un titre joué dans l'heure est sauté. Morceaux copiés en base à l'import (500 au plus) : la lecture ne rappelle jamais la source |
 | Retrait d'un morceau | Suppression de la ligne `queue_items` |
 | Réordonnancement | Boutons monter / descendre, envoi de l'ordre complet ; refusé (409) si la file a changé entre-temps |
 | Ajout par l'hôte | Géré par `QueueService` et `added_by_user_id`, mais sans interface : l'hôte peut ouvrir la télécommande sur son téléphone |
@@ -112,6 +113,12 @@ Aucune ambiguïté n'était bloquante ; voici les décisions prises sans vous co
 - **Un seul écran hôte actif.** Deux onglets hôte ouverts jouent tous les deux la musique. Les actions restent cohérentes (grâce à l'idempotence de `advance`), mais le son est doublé.
 - **Spotify** : compte Premium obligatoire ; le SDK exige un contexte sécurisé (HTTPS ou `127.0.0.1`) et un navigateur avec DRM (EME), ce qui exclut beaucoup de navigateurs intégrés aux TV : branchez plutôt un PC. En « mode développement », l'application Spotify n'accepte que les comptes déclarés dans son tableau de bord.
 - **Onglet hôte en arrière-plan** : les navigateurs ralentissent les minuteries, la détection de fin peut être retardée. Gardez l'écran hôte au premier plan.
+
+**Playlist de fond**
+
+- Les morceaux sont copiés à l'import : une modification ultérieure de la playlist chez Spotify ou YouTube n'est pas répercutée (il faut la choisir à nouveau).
+- Spotify refuse aux nouvelles applications l'accès aux playlists éditoriales et générées.
+- La lecture des playlists Spotify n'a pas été testée contre la vraie API (seulement avec des réponses simulées), comme le reste de l'intégration Spotify.
 
 **Données et fonctionnement**
 

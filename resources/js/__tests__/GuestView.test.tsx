@@ -337,7 +337,7 @@ describe('GuestView — file et lecture', () => {
         const next = makeItem({ added_by: { type: 'guest', name: 'Noé' } });
         const room = makeRoomState({
             version: 4,
-            playback: { status: 'paused', current, position_ms: 65_000, position_updated_at: Date.now() },
+            playback: { status: 'paused', current, position_ms: 65_000, position_updated_at: Date.now(), playlist: null },
             queue: [next],
         });
 
@@ -363,5 +363,19 @@ describe('GuestView — file et lecture', () => {
 
         expect(screen.getByText(/Ce salon est fermé/)).toBeInTheDocument();
         expect(screen.queryByLabelText('Rechercher un morceau')).not.toBeInTheDocument();
+    });
+
+    it('signale la musique de fond et l\'origine du morceau en cours', async () => {
+        const playlist = { id: 1, provider: 'spotify' as const, name: 'Soirée 2000', image_url: null, shuffled: false };
+        const current = makeItem({ status: 'playing', added_by: { type: 'playlist', name: 'Soirée 2000' } });
+
+        await renderAsGuest(
+            makeRoomState({ version: 2, playback: { status: 'playing', current, position_ms: 0, position_updated_at: Date.now(), playlist } }),
+        );
+
+        expect(screen.getByText(/Vos morceaux passent/)).toHaveTextContent('Musique de fond : Soirée 2000. Vos morceaux passent avant.');
+        const nowPlaying = screen.getByRole('region', { name: 'En cours de lecture' });
+        expect(within(nowPlaying).getByText(/playlist/)).toHaveTextContent('playlist Soirée 2000');
+        expect(within(nowPlaying).queryByText(/ajouté par/)).not.toBeInTheDocument();
     });
 });

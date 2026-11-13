@@ -2,6 +2,7 @@
 // Principe : cette page ne décide de rien. Chaque action part au serveur ; c'est l'état renvoyé
 // (ou diffusé) qui pilote le lecteur. L'écran hôte est "juste" le client qui possède les haut-parleurs.
 import ConnectionStatus from '@/Components/ConnectionStatus';
+import PlaylistPicker, { type PlaylistChoice } from '@/Components/PlaylistPicker';
 import ProgressBar from '@/Components/ProgressBar';
 import ProviderBadge from '@/Components/ProviderBadge';
 import TrackRow from '@/Components/TrackRow';
@@ -16,7 +17,7 @@ import { SpotifyAdapter } from '@/player/SpotifyAdapter';
 import { YouTubeAdapter } from '@/player/YouTubeAdapter';
 import type { HostUser, Provider, QueueItem, RoomState } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
-import { ArrowDown, ArrowUp, CircleAlert, Music, Pause, Play, Power, SkipForward, Trash2, Users } from 'lucide-react';
+import { ArrowDown, ArrowUp, CircleAlert, ListMusic, LoaderCircle, Music, Pause, Play, Power, Shuffle, SkipForward, Trash2, Users, X } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
@@ -234,10 +235,12 @@ export default function HostView({ room, host, join_url: joinUrl }: HostViewProp
         }
     }, [started, currentId, status]);
 
-    // Démarrage automatique : la session est lancée, rien ne joue, et la file n'est pas vide
-    // (premier morceau ajouté par un invité). Une seule demande par version d'état.
+    // Démarrage automatique : la session est lancée, rien ne joue, et il y a quelque chose à jouer
+    // (un morceau en file, ou une playlist de fond). Une seule demande par version d'état.
+    const hasPlaylist = playback.playlist !== null;
+
     useEffect(() => {
-        if (!started || status !== 'idle' || currentId !== null || queue.length === 0) {
+        if (!started || status !== 'idle' || currentId !== null || (queue.length === 0 && !hasPlaylist)) {
             return;
         }
 
@@ -247,7 +250,7 @@ export default function HostView({ room, host, join_url: joinUrl }: HostViewProp
 
         autoStartVersionRef.current = state.version;
         void run(() => api.playback(code, { action: 'play' }));
-    }, [started, status, currentId, queue.length, state.version, code, run]);
+    }, [started, status, currentId, queue.length, hasPlaylist, state.version, code, run]);
 
     // --- Actions de l'hôte --------------------------------------------------------------
     const togglePlay = (): void => {
@@ -295,7 +298,51 @@ export default function HostView({ room, host, join_url: joinUrl }: HostViewProp
         }
     };
 
-    const canPlay = current !== null || queue.length > 0;
+    const canPlay = current !== null || queue.length > 0 || hasPlaylist;
+
+    // --- Playlist de fond -----------------------------------------------------------------
+    const [playlistDialogOpen, setPlaylistDialogOpen] = useState(false);
+    const [playlistChoice, setPlaylistChoice] = useState<PlaylistChoice>({ url: '', shuffle: false });
+    const [playlistError, setPlaylistError] = useState<string | null>(null);
+    const [playlistSaving, setPlaylistSaving] = useState(false);
+
+    const openPlaylistDialog = (): void => {
+        setPlaylistChoice({ url: '', shuffle: playback.playlist?.shuffled ?? false });
+        setPlaylistError(null);
+        setPlaylistDialogOpen(true);
+    };
+
+    const savePlaylist = async (): Promise<void> => {
+        setPlaylistSaving(true);
+        setPlaylistError(null);
+
+        try {
+            applyServerState(await api.setPlaylist(code, playlistChoice.url.trim(), playlistChoice.shuffle));
+            setPlaylistDialogOpen(false);
+        } catch (error) {
+            // Message du serveur affiché tel quel (lien non reconnu, playlist éditoriale, quota…).
+            setPlaylistError(error instanceof ApiError ? error.message : 'Impossible d\'importer cette playlist.');
+        } finally {
+            setPlaylistSaving(false);
+        }
+    };
+
+    const removePlaylist = (): void => {
+        if (window.confirm('Retirer la musique de fond ? La musique s\'arrêtera quand la file sera vide.')) {
+            void run(() => api.removePlaylist(code));
+        }
+    };
+
+    // Le QR code pointe vers une adresse que seul ce PC peut ouvrir : les téléphones afficheront
+    // « site inaccessible ». Cas typique : JUKEBOX_PUBLIC_URL non renseigné.
+    const joinHost = ((): string => {
+        try {
+            return new URL(joinUrl).hostname;
+        } catch {
+            return '';
+        }
+    })();
+    const qrIsLocalOnly = ['127.0.0.1', 'localhost', '::1', '[::1]', '0.0.0.0'].includes(joinHost);
 
     return (
         <>
@@ -425,8 +472,49 @@ export default function HostView({ room, host, join_url: joinUrl }: HostViewProp
                             <span className="tabular rounded-full bg-white/10 px-3 py-0.5 text-sm font-semibold text-slate-200">{queue.length}</span>
                         </h2>
 
+                        {/* Musique de fond : jouée quand la file des invités est vide. */}
+                        <div className="mx-3 mb-2 flex shrink-0 items-center gap-3 rounded-2xl bg-ink-800 px-3 py-2.5 ring-1 ring-white/5">
+                            {playback.playlist ? (
+                                <>
+                                    <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md bg-ink-700">
+                                        {playback.playlist.image_url ? (
+                                            <img src={playback.playlist.image_url} alt="" className="h-full w-full object-cover" />
+                                        ) : (
+                                            <ListMusic aria-hidden="true" className="m-2.5 h-5 w-5 text-slate-500" />
+                                        )}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-xs uppercase tracking-wide text-slate-500">Musique de fond</p>
+                                        <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-slate-100">
+                                            {playback.playlist.shuffled && <Shuffle aria-label="lecture aléatoire" className="h-3.5 w-3.5 shrink-0 text-accent" />}
+                                            <span className="truncate">{playback.playlist.name}</span>
+                                        </p>
+                                    </div>
+                                    <ProviderBadge provider={playback.playlist.provider} />
+                                    <button type="button" onClick={openPlaylistDialog} className="rounded-lg px-2.5 py-1.5 text-sm text-slate-300 ring-1 ring-white/10 hover:text-white">
+                                        Changer
+                                    </button>
+                                    <IconButton label="Retirer la musique de fond" danger onClick={removePlaylist}>
+                                        <X aria-hidden="true" className="h-5 w-5" />
+                                    </IconButton>
+                                </>
+                            ) : (
+                                <>
+                                    <p className="min-w-0 flex-1 text-sm text-slate-400">Pas de musique de fond : la lecture s'arrête quand la file est vide.</p>
+                                    <button type="button" onClick={openPlaylistDialog} className="flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-slate-200 ring-1 ring-white/10 hover:ring-accent">
+                                        <ListMusic aria-hidden="true" className="h-4 w-4" />
+                                        Choisir une playlist
+                                    </button>
+                                </>
+                            )}
+                        </div>
+
                         {queue.length === 0 ? (
-                            <p className="px-6 pb-6 text-slate-500">La file est vide. Les morceaux ajoutés par les invités apparaîtront ici.</p>
+                            <p className="px-6 pb-6 text-slate-500">
+                                {playback.playlist
+                                    ? 'La file est vide : la playlist prend le relais. Les morceaux ajoutés par les invités passeront en priorité.'
+                                    : 'La file est vide. Les morceaux ajoutés par les invités apparaîtront ici.'}
+                            </p>
                         ) : (
                             <ol className="min-h-0 flex-1 divide-y divide-white/5 overflow-y-auto px-3 pb-3">
                                 {queue.map((item, index) => (
@@ -476,10 +564,52 @@ export default function HostView({ room, host, join_url: joinUrl }: HostViewProp
                                 {code}
                             </p>
                             <p className="mt-2 truncate text-sm text-slate-500">{joinUrl}</p>
+                            {qrIsLocalOnly && (
+                                <p role="alert" className="mt-2 flex items-start gap-1.5 text-sm text-amber-200">
+                                    <CircleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+                                    <span>
+                                        Cette adresse ne fonctionne que sur ce PC : les téléphones ne pourront pas l'ouvrir. Renseignez
+                                        JUKEBOX_PUBLIC_URL dans le fichier .env (voir le README, section 8).
+                                    </span>
+                                </p>
+                            )}
                         </div>
                     </aside>
                 </main>
             </div>
+
+            {/* --- Choix de la musique de fond ------------------------------------------------------ */}
+            {playlistDialogOpen && (
+                <div role="dialog" aria-modal="true" aria-labelledby="playlist-title" className="fixed inset-0 z-40 flex items-center justify-center bg-ink-950/80 p-6">
+                    <div className="w-full max-w-lg rounded-3xl bg-ink-900 p-6 ring-1 ring-white/10">
+                        <h2 id="playlist-title" className="text-xl font-bold">
+                            Musique de fond
+                        </h2>
+                        <p className="mt-1 text-sm text-slate-400">
+                            Elle joue quand la file est vide et reprend du début une fois finie. Les morceaux des invités passent toujours en priorité.
+                        </p>
+
+                        <div className="mt-4">
+                            <PlaylistPicker value={playlistChoice} onChange={setPlaylistChoice} spotifyEnabled={state.spotify_enabled} error={playlistError} />
+                        </div>
+
+                        <div className="mt-6 flex justify-end gap-3">
+                            <button type="button" onClick={() => setPlaylistDialogOpen(false)} className="rounded-lg px-4 py-2 text-slate-300 hover:text-white">
+                                Annuler
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => void savePlaylist()}
+                                disabled={playlistSaving || playlistChoice.url.trim() === ''}
+                                className="flex items-center gap-2 rounded-lg bg-accent-strong px-4 py-2 font-semibold text-white hover:bg-accent disabled:opacity-40"
+                            >
+                                {playlistSaving && <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" />}
+                                {playlistSaving ? 'Import…' : 'Utiliser cette playlist'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* --- Voile de démarrage : débloque l'audio du navigateur ---------------------------- */}
             {!started && (

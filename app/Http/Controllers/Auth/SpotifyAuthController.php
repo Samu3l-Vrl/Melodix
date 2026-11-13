@@ -21,7 +21,8 @@ class SpotifyAuthController extends Controller
      * Scopes demandés :
      *  - streaming : lire dans le navigateur avec le Web Playback SDK (Premium requis) ;
      *  - user-read-email, user-read-private : exigés par le SDK, et `product` (premium/free) vient de là ;
-     *  - user-read-playback-state, user-modify-playback-state : lancer un morceau sur l'appareil du SDK.
+     *  - user-read-playback-state, user-modify-playback-state : lancer un morceau sur l'appareil du SDK ;
+     *  - playlist-read-private, playlist-read-collaborative : choisir une playlist de fond.
      */
     public const SCOPES = [
         'streaming',
@@ -29,6 +30,9 @@ class SpotifyAuthController extends Controller
         'user-read-private',
         'user-read-playback-state',
         'user-modify-playback-state',
+        // Lire les playlists de l'hôte (privées et collaboratives) pour la playlist de fond.
+        'playlist-read-private',
+        'playlist-read-collaborative',
     ];
 
     /** Étape 1 : redirige l'hôte vers la page de consentement Spotify. */

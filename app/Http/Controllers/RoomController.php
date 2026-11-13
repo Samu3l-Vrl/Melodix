@@ -2,13 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\PlaylistException;
+use App\Http\Requests\StoreRoomRequest;
 use App\Http\Resources\HostResource;
 use App\Http\Resources\RoomStateResource;
 use App\Models\Room;
+use App\Services\Playlists\PlaylistService;
 use App\Services\RoomService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -18,10 +22,30 @@ use Inertia\Response;
  */
 class RoomController extends Controller
 {
-    /** POST /rooms — crée un salon pour l'hôte connecté puis ouvre son écran hôte. */
-    public function store(Request $request, RoomService $rooms): RedirectResponse
+    /**
+     * POST /rooms — crée un salon pour l'hôte connecté puis ouvre son écran hôte.
+     * Avec `playlist_url`, la playlist est lue AVANT de créer le salon : si elle est inutilisable,
+     * aucun salon n'est créé et le formulaire affiche l'erreur.
+     */
+    public function store(StoreRoomRequest $request, RoomService $rooms, PlaylistService $playlists): RedirectResponse
     {
+        $link = $request->validated('playlist_url');
+        $data = null;
+
+        if (is_string($link) && $link !== '') {
+            try {
+                $data = $playlists->fetch($link, $request->user());
+            } catch (PlaylistException $e) {
+                // Inertia transmet les erreurs de validation au formulaire (props.errors.playlist_url).
+                throw ValidationException::withMessages(['playlist_url' => $e->getMessage()]);
+            }
+        }
+
         $room = $rooms->create($request->user());
+
+        if ($data !== null) {
+            $playlists->attach($room, $data, $request->boolean('shuffle'));
+        }
 
         return redirect()->route('rooms.host', $room);
     }

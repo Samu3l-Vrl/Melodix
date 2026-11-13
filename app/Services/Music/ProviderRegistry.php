@@ -4,6 +4,7 @@ namespace App\Services\Music;
 
 use App\Enums\Provider;
 use App\Models\Room;
+use App\Models\User;
 use InvalidArgumentException;
 
 /**
@@ -36,12 +37,20 @@ class ProviderRegistry
      */
     public function isEnabledFor(Provider $provider, Room $room): bool
     {
+        return $this->isEnabledForHost($provider, $room->host);
+    }
+
+    /**
+     * Même règle, à partir de l'hôte seul (utile avant que le salon existe, à l'import d'une playlist).
+     */
+    public function isEnabledForHost(Provider $provider, User $host): bool
+    {
         if (! isset($this->providers[$provider->value]) || ! $this->providers[$provider->value]->isConfigured()) {
             return false;
         }
 
         return match ($provider) {
-            Provider::Spotify => $room->host->hasSpotifyPremium(),
+            Provider::Spotify => $host->hasSpotifyPremium(),
             Provider::YouTube => true,
         };
     }

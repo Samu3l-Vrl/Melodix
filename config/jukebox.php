@@ -13,6 +13,13 @@ return [
     // Un salon sans activité depuis ce nombre d'heures est fermé par rooms:close-inactive.
     'inactivity_hours' => (int) env('JUKEBOX_INACTIVITY_HOURS', 12),
 
+    'playlist' => [
+        // Nombre maximal de morceaux importés depuis une playlist (Spotify : 100 par appel, YouTube : 50).
+        'max_tracks' => (int) env('JUKEBOX_PLAYLIST_MAX_TRACKS', 500),
+        // Un morceau joué depuis moins de N minutes est sauté par la playlist (s'il reste d'autres choix).
+        'recent_minutes' => 60,
+    ],
+
     'search' => [
         // Timeout (secondes) de chaque appel à une source musicale.
         'timeout' => 4,

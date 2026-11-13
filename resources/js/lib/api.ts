@@ -7,6 +7,7 @@ import type {
     Provider,
     RoomState,
     SearchResponse,
+    SpotifyPlaylistOption,
     SpotifyTokenResponse,
 } from '@/types';
 
@@ -143,6 +144,16 @@ export const api = {
 
     reorderQueue: (code: string, order: number[]): Promise<RoomState> =>
         request('PUT', `${host(code)}/queue/reorder`, { body: { order } }),
+
+    /** Remplace la playlist de fond (lien Spotify ou YouTube). */
+    setPlaylist: (code: string, playlistUrl: string, shuffle: boolean): Promise<RoomState> =>
+        request('PUT', `${host(code)}/playlist`, { body: { playlist_url: playlistUrl, shuffle } }),
+
+    /** Retire la playlist de fond. */
+    removePlaylist: (code: string): Promise<RoomState> => request('DELETE', `${host(code)}/playlist`),
+
+    /** Playlists du compte Spotify de l'hôte (vide si l'hôte n'est pas Premium). */
+    spotifyPlaylists: (): Promise<{ playlists: SpotifyPlaylistOption[] }> => request('GET', '/host/spotify/playlists'),
 
     /** Jeton Spotify de l'hôte pour le Web Playback SDK (rafraîchi côté serveur si besoin). */
     spotifyToken: (): Promise<SpotifyTokenResponse> => request('GET', '/host/spotify/token'),

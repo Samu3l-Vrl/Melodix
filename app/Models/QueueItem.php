@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\QueueItemSource;
 use App\Enums\QueueItemStatus;
 use Database\Factories\QueueItemFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -17,12 +18,15 @@ use Illuminate\Support\Carbon;
  * @property int $track_id
  * @property int|null $added_by_guest_id
  * @property int|null $added_by_user_id
+ * @property QueueItemSource $source
+ * @property int|null $playlist_id
  * @property int $position
  * @property QueueItemStatus $status
  * @property Carbon|null $played_at
  * @property-read Track $track
  * @property-read Guest|null $guest
  * @property-read User|null $user
+ * @property-read Playlist|null $playlist
  */
 class QueueItem extends Model
 {
@@ -35,6 +39,8 @@ class QueueItem extends Model
         'track_id',
         'added_by_guest_id',
         'added_by_user_id',
+        'source',
+        'playlist_id',
         'position',
         'status',
         'played_at',
@@ -43,6 +49,7 @@ class QueueItem extends Model
     /** @var array<string, mixed> */
     protected $attributes = [
         'status' => 'queued',
+        'source' => 'guest',
     ];
 
     /** @return array<string, string> */
@@ -51,6 +58,7 @@ class QueueItem extends Model
         return [
             'position' => 'integer',
             'status' => QueueItemStatus::class,
+            'source' => QueueItemSource::class,
             'played_at' => 'datetime',
         ];
     }
@@ -77,5 +85,11 @@ class QueueItem extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'added_by_user_id');
+    }
+
+    /** @return BelongsTo<Playlist, $this> */
+    public function playlist(): BelongsTo
+    {
+        return $this->belongsTo(Playlist::class);
     }
 }

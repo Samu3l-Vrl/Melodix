@@ -9,7 +9,7 @@ import { api, ApiError, isAbortError } from '@/lib/api';
 import { clearGuestSession, lastNickname, loadGuestSession, saveGuestSession, type GuestSession } from '@/lib/guestSession';
 import type { ConnectionState, Provider, RoomState, SearchResult, SourceStatus } from '@/types';
 import { Head } from '@inertiajs/react';
-import { Check, CircleAlert, ListMusic, LoaderCircle, Plus, Search, X } from 'lucide-react';
+import { Check, CircleAlert, Disc3, ListMusic, LoaderCircle, Plus, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 
 interface GuestViewProps {
@@ -405,6 +405,16 @@ export default function GuestView({ room }: GuestViewProps) {
                     À suivre
                     <span className="tabular rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-200">{state.queue.length}</span>
                 </h2>
+
+                {state.playback.playlist && (
+                    <p className="mt-2 flex items-start gap-1.5 text-sm text-slate-400">
+                        <Disc3 aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span className="min-w-0">
+                            Musique de fond : <span className="font-medium text-slate-200">{state.playback.playlist.name}</span>. Vos morceaux passent
+                            avant.
+                        </span>
+                    </p>
+                )}
 
                 {state.queue.length === 0 ? (
                     <p className="mt-3 text-sm text-slate-500">La file est vide.</p>

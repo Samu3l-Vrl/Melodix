@@ -3,7 +3,7 @@
 import ProviderBadge from '@/Components/ProviderBadge';
 import { formatDuration } from '@/lib/time';
 import type { AddedBy, SearchResult } from '@/types';
-import { Music } from 'lucide-react';
+import { ListMusic, Music } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 interface TrackRowProps {
@@ -49,16 +49,32 @@ export default function TrackRow({ track, index, addedBy, actions, size = 'md', 
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
                     <ProviderBadge provider={track.provider} />
                     <span className="tabular">{formatDuration(track.duration_ms)}</span>
-                    {addedBy && (
-                        <span className="truncate">
-                            ajouté par <span className="font-medium text-slate-200">{addedBy.name}</span>
-                            {addedBy.type === 'host' && ' (hôte)'}
-                        </span>
-                    )}
+                    {addedBy && <AddedByLabel addedBy={addedBy} />}
                 </div>
             </div>
 
             {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
         </div>
+    );
+}
+
+/** « ajouté par Léa », « ajouté par Camille (hôte) » ou « playlist Soirée 2000 ». */
+function AddedByLabel({ addedBy }: { addedBy: AddedBy }) {
+    if (addedBy.type === 'playlist') {
+        return (
+            <span className="inline-flex min-w-0 items-center gap-1">
+                <ListMusic aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">
+                    playlist <span className="font-medium text-slate-200">{addedBy.name}</span>
+                </span>
+            </span>
+        );
+    }
+
+    return (
+        <span className="truncate">
+            ajouté par <span className="font-medium text-slate-200">{addedBy.name}</span>
+            {addedBy.type === 'host' && ' (hôte)'}
+        </span>
     );
 }

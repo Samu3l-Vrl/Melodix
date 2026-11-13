@@ -2,6 +2,7 @@
 
 namespace App\Services\Music;
 
+use App\Data\PlaylistData;
 use App\Data\ProviderRequest;
 use App\Data\TrackData;
 use App\Enums\Provider;
@@ -105,20 +106,94 @@ class YouTubeProvider implements MusicProvider
 
     public function find(string $providerTrackId): ?TrackData
     {
-        if (! $this->quota->canSpend(YouTubeQuota::COST_VIDEOS)) {
-            throw new ProviderException('Quota YouTube du jour épuisé.');
-        }
+        return $this->videosByIds([$providerTrackId])[0] ?? null;
+    }
 
-        $response = $this->videos([$providerTrackId], 'snippet,contentDetails,status');
-        $item = $response->json('items.0');
+    /**
+     * Lit une playlist YouTube (jusqu'à $maxTracks vidéos). Null si elle n'existe pas ou est privée.
+     *
+     * Coût : 1 unité par page de 50 (playlistItems.list) + 1 unité par lot de 50 (videos.list).
+     * Une playlist de 200 titres coûte donc 8 unités, contre 100 pour une seule recherche.
+     * Les « mix » générés par YouTube (identifiants en RD…) ne sont pas lisibles par l'API.
+     */
+    public function playlist(string $playlistId, int $maxTracks): ?PlaylistData
+    {
+        $meta = $this->get('playlists', ['part' => 'snippet', 'id' => $playlistId]);
+        $snippet = $meta->json('items.0.snippet');
 
-        if (! is_array($item) || ($item['status']['embeddable'] ?? true) === false) {
+        if (! is_array($snippet)) {
             return null;
         }
 
-        $durationMs = self::parseIsoDuration((string) ($item['contentDetails']['duration'] ?? ''));
+        $ids = [];
+        $pageToken = null;
 
-        return $durationMs > 0 ? $this->toTrackData($providerTrackId, $item['snippet'] ?? [], $durationMs) : null;
+        do {
+            $page = $this->get('playlistItems', array_filter([
+                'part' => 'contentDetails',
+                'playlistId' => $playlistId,
+                'maxResults' => 50,
+                'pageToken' => $pageToken,
+            ]));
+
+            foreach ($page->json('items', []) as $item) {
+                $videoId = $item['contentDetails']['videoId'] ?? null;
+
+                if (is_string($videoId) && $videoId !== '') {
+                    $ids[] = $videoId;
+                }
+            }
+
+            $pageToken = $page->json('nextPageToken');
+        } while (is_string($pageToken) && count($ids) < $maxTracks);
+
+        $thumbnails = $snippet['thumbnails'] ?? [];
+
+        return new PlaylistData(
+            provider: Provider::YouTube,
+            providerPlaylistId: $playlistId,
+            name: html_entity_decode((string) ($snippet['title'] ?? 'Playlist YouTube'), ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+            imageUrl: $thumbnails['high']['url'] ?? $thumbnails['medium']['url'] ?? $thumbnails['default']['url'] ?? null,
+            // Vidéos supprimées, privées ou non intégrables : écartées.
+            tracks: $this->videosByIds(array_slice(array_values(array_unique($ids)), 0, $maxTracks)),
+        );
+    }
+
+    /**
+     * Métadonnées complètes de plusieurs vidéos, par lots de 50 (1 unité par lot).
+     * Écarte les vidéos introuvables, non intégrables ou sans durée (directs). Conserve l'ordre reçu.
+     *
+     * @param  list<string>  $ids
+     * @return list<TrackData>
+     */
+    public function videosByIds(array $ids): array
+    {
+        $byId = [];
+
+        foreach (array_chunk($ids, 50) as $chunk) {
+            $response = $this->videos($chunk, 'snippet,contentDetails,status');
+
+            foreach ($response->json('items', []) as $item) {
+                $id = (string) ($item['id'] ?? '');
+                $durationMs = self::parseIsoDuration((string) ($item['contentDetails']['duration'] ?? ''));
+
+                if ($id === '' || ($item['status']['embeddable'] ?? true) === false || $durationMs <= 0) {
+                    continue;
+                }
+
+                $byId[$id] = $this->toTrackData($id, $item['snippet'] ?? [], $durationMs);
+            }
+        }
+
+        $tracks = [];
+
+        foreach ($ids as $id) {
+            if (isset($byId[$id])) {
+                $tracks[] = $byId[$id];
+            }
+        }
+
+        return $tracks;
     }
 
     /**
@@ -162,9 +237,43 @@ class YouTubeProvider implements MusicProvider
         return $durations;
     }
 
+    /**
+     * Appel d'un endpoint à 1 unité (playlists, playlistItems), avec contrôle du quota.
+     *
+     * @param  array<string, scalar>  $query
+     */
+    private function get(string $endpoint, array $query): Response
+    {
+        if (! $this->quota->canSpend(YouTubeQuota::COST_VIDEOS)) {
+            throw new ProviderException('Quota YouTube du jour épuisé.');
+        }
+
+        $this->quota->spend(YouTubeQuota::COST_VIDEOS);
+
+        try {
+            $response = Http::timeout((int) config('jukebox.search.timeout'))
+                ->get(self::API_URL.'/'.$endpoint, [...$query, 'key' => (string) config('services.youtube.key')]);
+        } catch (ConnectionException $e) {
+            throw new ProviderException('YouTube est injoignable.', previous: $e);
+        }
+
+        // 404 playlistNotFound : traité comme « pas de résultat » par l'appelant.
+        if ($response->status() === 404) {
+            return $response;
+        }
+
+        $this->guard($response, $endpoint);
+
+        return $response;
+    }
+
     /** @param  list<string>  $ids */
     private function videos(array $ids, string $part): Response
     {
+        if (! $this->quota->canSpend(YouTubeQuota::COST_VIDEOS)) {
+            throw new ProviderException('Quota YouTube du jour épuisé.');
+        }
+
         $this->quota->spend(YouTubeQuota::COST_VIDEOS);
 
         try {

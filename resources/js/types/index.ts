@@ -27,10 +27,28 @@ export interface Track {
 /** App\Http\Resources\SearchResultResource — un morceau pas encore persistant, donc sans id. */
 export type SearchResult = Omit<Track, 'id'>;
 
-/** Auteur d'un ajout (QueueItemResource::author). */
+/** Auteur d'un ajout (QueueItemResource::author). Pour une playlist, `name` est le nom de la playlist. */
 export interface AddedBy {
-    type: 'guest' | 'host';
+    type: 'guest' | 'host' | 'playlist';
     name: string;
+}
+
+/** App\Http\Resources\PlaylistResource — playlist de fond, jouée quand la file est vide. */
+export interface PlaylistSummary {
+    id: number;
+    provider: Provider;
+    name: string;
+    image_url: string | null;
+    shuffled: boolean;
+}
+
+/** Une playlist du compte Spotify de l'hôte (GET /host/spotify/playlists). */
+export interface SpotifyPlaylistOption {
+    id: string;
+    name: string;
+    image_url: string | null;
+    track_count: number | null;
+    owner: string | null;
 }
 
 /** App\Http\Resources\QueueItemResource */
@@ -52,6 +70,8 @@ export interface PlaybackState {
     current: QueueItem | null;
     position_ms: number;
     position_updated_at: number | null;
+    /** Playlist de fond du salon, ou null. */
+    playlist: PlaylistSummary | null;
 }
 
 /** App\Http\Resources\RoomStateResource — état complet d'un salon. */

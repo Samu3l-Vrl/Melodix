@@ -219,6 +219,23 @@ Pourquoi verrouiller la ligne `rooms` plutôt qu'utiliser un verrou Redis ? Le v
 
 **Détails.** Les méthodes statiques `plain()` renvoient un tableau PHP sans objets imbriqués : la même forme sert aux réponses HTTP, aux props Inertia et aux payloads des events. `RoomStateResource::for()` recharge les relations puis sérialise : c'est le point d'entrée unique qui évite d'oublier un `load()`. `JsonResource::withoutWrapping()` (dans `AppServiceProvider`) supprime l'enveloppe `{"data": …}`, pour que les types TypeScript correspondent exactement. `added_by` n'expose que le type et le nom, jamais d'identifiant ni de jeton.
 
+## B.5 bis Playlist de fond
+
+| Fichier | Rôle |
+| --- | --- |
+| `database/migrations/2026_01_02_000000_create_playlists_tables.php` | Tables `playlists` et `playlist_tracks` ; `rooms.playlist_id` et `rooms.playlist_position` (curseur) ; `queue_items.source` et `queue_items.playlist_id` |
+| `app/Enums/QueueItemSource.php` | Provenance d'un élément : `guest`, `host`, `playlist` |
+| `app/Models/Playlist.php` | Playlist importée ; `tracks()` dans l'ordre de lecture |
+| `app/Services/Playlists/PlaylistLink.php` | Reconnaît un lien Spotify ou YouTube (formes de partage, URI, identifiant seul) |
+| `app/Services/Playlists/PlaylistService.php` | `fetch()` lit la playlist chez la source (hors transaction), `attach()` l'enregistre et l'active sous verrou, `detach()` la retire. Chaque changement incrémente `version` et diffuse `PlaybackStateChanged` |
+| `SpotifyProvider::playlist()`, `userPlaylists()` | Lecture avec le jeton **personnel** de l'hôte (scopes `playlist-read-private`, `playlist-read-collaborative`), pagination par 100 ; épisodes et fichiers locaux ignorés |
+| `YouTubeProvider::playlist()`, `videosByIds()` | `playlistItems.list` par 50 puis `videos.list` par 50 (1 unité chacun) ; vidéos non intégrables ou sans durée ignorées |
+| `app/Http/Controllers/Host/PlaylistController.php` | `GET /host/spotify/playlists`, `PUT` et `DELETE /host/rooms/{code}/playlist` |
+
+**Détails.** C'est `QueueService::advance()` qui fait jouer la playlist : il clôt d'abord le morceau courant, prend le premier élément **en attente** (priorité aux invités), et seulement s'il n'y en a pas, appelle `nextFromPlaylist()`. Celui-ci part du curseur, saute les titres actifs, joués dans l'heure (sauf s'il ne reste rien d'autre) ou d'une source indisponible, crée l'élément de file avec `source = playlist`, et avance le curseur (modulo la taille : la playlist boucle). Tout se passe sous le verrou du salon : mêmes garanties que pour la file. Les éléments de playlist ne sont créés qu'au moment où ils jouent : ils n'apparaissent jamais dans « À suivre ».
+
+À la création du salon, la playlist est lue **avant** de créer le salon : un lien inutilisable renvoie une erreur de validation sur `playlist_url`, sans salon orphelin.
+
 ## B.6 Routes et câblage
 
 ### `routes/web.php`

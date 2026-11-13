@@ -1,4 +1,5 @@
 // resources/js/Pages/Home.tsx — page d'accueil : rejoindre un salon avec un code, ou se connecter avec Spotify pour en créer un.
+import PlaylistPicker, { type PlaylistChoice } from '@/Components/PlaylistPicker';
 import type { SharedProps } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { LogOut, Music2, Plus, Tv } from 'lucide-react';
@@ -13,9 +14,12 @@ interface HomeProps {
 const CODE_PATTERN = /^[A-HJ-NP-Z]{4}$/;
 
 export default function Home({ rooms }: HomeProps) {
-    const { auth, flash, app } = usePage<SharedProps>().props;
+    // `errors` : erreurs de validation renvoyées par Inertia (ex. playlist introuvable).
+    const { auth, flash, app, errors } = usePage<SharedProps>().props;
     const [code, setCode] = useState('');
     const [creating, setCreating] = useState(false);
+    const [withPlaylist, setWithPlaylist] = useState(false);
+    const [playlist, setPlaylist] = useState<PlaylistChoice>({ url: '', shuffle: false });
 
     const normalizedCode = code.trim().toUpperCase();
     const codeIsValid = CODE_PATTERN.test(normalizedCode);
@@ -29,8 +33,13 @@ export default function Home({ rooms }: HomeProps) {
     };
 
     const createRoom = (): void => {
-        // router.post gère le jeton CSRF et suit la redirection vers l'écran hôte.
-        router.post('/rooms', {}, { onStart: () => setCreating(true), onFinish: () => setCreating(false) });
+        // router.post gère le jeton CSRF et suit la redirection vers l'écran hôte. En cas de playlist
+        // inutilisable, le serveur renvoie une erreur de validation : aucun salon n'est créé.
+        router.post(
+            '/rooms',
+            { playlist_url: playlist.url.trim(), shuffle: playlist.shuffle },
+            { onStart: () => setCreating(true), onFinish: () => setCreating(false) },
+        );
     };
 
     return (
@@ -111,14 +120,49 @@ export default function Home({ rooms }: HomeProps) {
                                 </p>
                             )}
 
+                            <div className="mt-4 rounded-lg bg-ink-800/60 p-3 ring-1 ring-white/10">
+                                <label className="flex items-start gap-2 text-sm">
+                                    <input
+                                        type="checkbox"
+                                        checked={withPlaylist}
+                                        onChange={(event) => {
+                                            setWithPlaylist(event.target.checked);
+
+                                            if (!event.target.checked) {
+                                                setPlaylist({ url: '', shuffle: false });
+                                            }
+                                        }}
+                                        className="mt-0.5 h-4 w-4 rounded border-white/20 bg-ink-800 text-accent-strong focus:ring-accent"
+                                    />
+                                    <span>
+                                        <span className="font-medium text-slate-100">Musique de fond</span>
+                                        <span className="block text-slate-400">
+                                            Une playlist joue quand la file est vide ; les morceaux ajoutés par les invités passent toujours en
+                                            priorité.
+                                        </span>
+                                    </span>
+                                </label>
+
+                                {withPlaylist && (
+                                    <div className="mt-3">
+                                        <PlaylistPicker
+                                            value={playlist}
+                                            onChange={setPlaylist}
+                                            spotifyEnabled={auth.user.spotify_premium}
+                                            error={errors.playlist_url ?? null}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
                             <button
                                 type="button"
                                 onClick={createRoom}
-                                disabled={creating}
+                                disabled={creating || (withPlaylist && playlist.url.trim() === '')}
                                 className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-accent-strong px-5 py-3 font-semibold text-white transition hover:bg-accent disabled:opacity-50"
                             >
                                 <Plus aria-hidden="true" className="h-5 w-5" />
-                                {creating ? 'Création…' : 'Créer un salon'}
+                                {creating ? (withPlaylist ? 'Import de la playlist…' : 'Création…') : 'Créer un salon'}
                             </button>
 
                             {rooms.length > 0 && (

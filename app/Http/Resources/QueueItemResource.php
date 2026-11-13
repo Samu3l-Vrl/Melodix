@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Enums\QueueItemSource;
 use App\Models\QueueItem;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -34,7 +35,7 @@ class QueueItemResource extends JsonResource
      */
     public static function plain(QueueItem $item): array
     {
-        $item->loadMissing(['track', 'guest', 'user']);
+        $item->loadMissing(['track', 'guest', 'user', 'playlist']);
 
         return (new self($item))->resolve(request());
     }
@@ -43,14 +44,14 @@ class QueueItemResource extends JsonResource
      * L'auteur affiché à côté du morceau. On n'expose que le type et le nom,
      * jamais d'identifiant interne ni de jeton.
      *
-     * @return array{type: 'guest'|'host', name: string}
+     * @return array{type: 'guest'|'host'|'playlist', name: string}
      */
     private function author(): array
     {
-        if ($this->user !== null) {
-            return ['type' => 'host', 'name' => $this->user->name];
-        }
-
-        return ['type' => 'guest', 'name' => $this->guest?->nickname ?? 'Invité'];
+        return match ($this->source) {
+            QueueItemSource::Playlist => ['type' => 'playlist', 'name' => $this->playlist?->name ?? 'Playlist'],
+            QueueItemSource::Host => ['type' => 'host', 'name' => $this->user?->name ?? 'Hôte'],
+            QueueItemSource::Guest => ['type' => 'guest', 'name' => $this->guest?->nickname ?? 'Invité'],
+        };
     }
 }
