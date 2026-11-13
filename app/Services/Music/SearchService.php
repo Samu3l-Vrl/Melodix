@@ -2,6 +2,7 @@
 
 namespace App\Services\Music;
 
+use App\Data\ProviderRequest;
 use App\Data\SearchOutcome;
 use App\Data\TrackData;
 use App\Models\Room;
@@ -32,7 +33,7 @@ class SearchService
         $results = [];
         /** @var array<string, string> $sources provider => ok | error | disabled */
         $sources = [];
-        /** @var array<string, \App\Data\ProviderRequest> $requests requêtes à envoyer dans le pool */
+        /** @var array<string, ProviderRequest> $requests requêtes à envoyer dans le pool */
         $requests = [];
         /** @var array<string, MusicProvider> $pending sources dont on attend une réponse HTTP */
         $pending = [];

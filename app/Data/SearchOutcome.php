@@ -8,7 +8,9 @@ namespace App\Data;
 final readonly class SearchOutcome
 {
     public const SOURCE_OK = 'ok';
+
     public const SOURCE_ERROR = 'error';
+
     public const SOURCE_DISABLED = 'disabled';
 
     /**

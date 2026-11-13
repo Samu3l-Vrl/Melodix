@@ -19,7 +19,9 @@ use Illuminate\Support\Facades\Http;
 class SpotifyProvider implements MusicProvider
 {
     private const TOKEN_URL = 'https://accounts.spotify.com/api/token';
+
     private const API_URL = 'https://api.spotify.com/v1';
+
     private const TOKEN_CACHE_KEY = 'spotify:app-token';
 
     public function provider(): Provider

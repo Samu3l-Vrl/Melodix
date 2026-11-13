@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Guest;
+use App\Models\QueueItem;
 use App\Models\Room;
 use App\Models\Track;
 use App\Models\User;
@@ -51,7 +52,7 @@ function guestHeaders(Guest $guest): array
 /**
  * Ajoute $count morceaux à la file via le vrai service (positions attribuées sous verrou).
  *
- * @return list<\App\Models\QueueItem>
+ * @return list<QueueItem>
  */
 function queueTracks(Room $room, int $count, ?Guest $guest = null): array
 {

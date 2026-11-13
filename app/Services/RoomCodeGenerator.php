@@ -25,7 +25,7 @@ class RoomCodeGenerator
 
     /**
      * @param  (Closure(): string)|null  $randomizer  Source de codes candidats ; injectable
-     *                                                 pour rendre les collisions testables.
+     *                                                pour rendre les collisions testables.
      */
     public function __construct(private readonly ?Closure $randomizer = null) {}
 

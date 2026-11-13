@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Cache;
 class YouTubeQuota
 {
     public const COST_SEARCH = 100;
+
     public const COST_VIDEOS = 1;
 
     private const TIMEZONE = 'America/Los_Angeles';

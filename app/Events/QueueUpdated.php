@@ -19,7 +19,9 @@ class QueueUpdated implements ShouldBroadcastNow
     use Dispatchable;
 
     public const ACTION_ADDED = 'added';
+
     public const ACTION_REMOVED = 'removed';
+
     public const ACTION_REORDERED = 'reordered';
 
     /** Horloge serveur (ms epoch) figée à la création de l'event. */

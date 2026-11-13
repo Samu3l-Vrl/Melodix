@@ -8,7 +8,6 @@ use App\Enums\QueueItemStatus;
 use App\Exceptions\DuplicateTrackException;
 use App\Exceptions\RoomClosedException;
 use App\Models\QueueItem;
-use App\Models\Room;
 use App\Models\Track;
 use App\Models\User;
 use App\Services\QueueService;
