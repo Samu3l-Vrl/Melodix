@@ -554,7 +554,7 @@ sail npm run typecheck
 Si la base `testing` n'existe pas (volume PostgreSQL créé avant l'ajout de ce projet) :
 
 ```bash
-sail psql -c "CREATE DATABASE testing"
+docker compose exec pgsql psql -U sail -d jukebox -c "CREATE DATABASE testing"
 ```
 
 ---
