@@ -1,0 +1,14 @@
+// resources/js/types/vite-env.d.ts — typage des variables d'environnement exposées par Vite (préfixe VITE_).
+/// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+    readonly VITE_APP_NAME?: string;
+    readonly VITE_REVERB_APP_KEY?: string;
+    readonly VITE_REVERB_HOST?: string;
+    readonly VITE_REVERB_PORT?: string;
+    readonly VITE_REVERB_SCHEME?: string;
+}
+
+interface ImportMeta {
+    readonly env: ImportMetaEnv;
+}

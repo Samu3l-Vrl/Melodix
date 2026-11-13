@@ -1,0 +1,24 @@
+/* resources/css/app.css — feuille de style unique : Tailwind + quelques réglages globaux. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    html {
+        /* Évite le zoom automatique d'iOS et le défilement élastique de la page entière. */
+        -webkit-text-size-adjust: 100%;
+        color-scheme: dark;
+    }
+
+    /* Les chiffres de durée ne "dansent" pas quand ils changent chaque seconde. */
+    .tabular {
+        font-variant-numeric: tabular-nums;
+    }
+}
+
+@layer utilities {
+    /* Marge basse qui respecte l'encoche / la barre gestuelle des téléphones. */
+    .pb-safe {
+        padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    }
+}
