@@ -35,6 +35,8 @@ const DRIFT_TOLERANCE_MS = 2500;
 const DRIFT_REPORT_INTERVAL_MS = 3000;
 /** Durée d'affichage d'un message temporaire. */
 const NOTICE_DURATION_MS = 6000;
+/** Durée d'affichage d'une erreur de lecture. */
+const ERROR_NOTICE_DURATION_MS = 30000;
 
 export default function HostView({ room, host, join_url: joinUrl }: HostViewProps) {
     const code = room.code;
@@ -42,7 +44,10 @@ export default function HostView({ room, host, join_url: joinUrl }: HostViewProp
     const positionMs = usePlaybackPosition(state.playback, clockOffsetMs);
 
     const [started, setStarted] = useState(false);
-    const [notice, setNotice] = useState<string | null>(null);
+    const [notice, setNoticeState] = useState<{ text: string; error: boolean } | null>(null);
+    const setNotice = useCallback((text: string | null, error = false): void => {
+        setNoticeState(text === null ? null : { text, error });
+    }, []);
     const [guestsCount, setGuestsCount] = useState<number | null>(null);
 
     const youtubeContainerRef = useRef<HTMLDivElement>(null);
@@ -69,7 +74,8 @@ export default function HostView({ room, host, join_url: joinUrl }: HostViewProp
             return;
         }
 
-        const timer = setTimeout(() => setNotice(null), NOTICE_DURATION_MS);
+        // Une erreur de lecture reste affichée plus longtemps : c'est souvent la seule trace d'un morceau sauté.
+        const timer = setTimeout(() => setNoticeState(null), notice.error ? ERROR_NOTICE_DURATION_MS : NOTICE_DURATION_MS);
 
         return () => clearTimeout(timer);
     }, [notice]);
@@ -180,7 +186,9 @@ export default function HostView({ room, host, join_url: joinUrl }: HostViewProp
             onTrackEnded: (key) => void run(() => api.playback(code, { action: 'ended', item_id: key })),
             // Morceau illisible (vidéo non intégrable, etc.) : on le saute sans intervention humaine.
             onTrackError: (key, error) => {
-                setNotice(`Lecture impossible (${error.message}) — passage au morceau suivant.`);
+                // Trace complète dans la console du navigateur (F12) pour le diagnostic.
+                console.warn('[Jukebox] Morceau sauté après une erreur de lecture', { key, code: error.code, message: error.message });
+                setNotice(`Lecture impossible (${error.message}) — passage au morceau suivant.`, true);
                 void run(() => api.skip(code, key), { silent: true });
             },
             onProgress: reportDrift,
@@ -447,11 +455,20 @@ export default function HostView({ room, host, join_url: joinUrl }: HostViewProp
                                 </button>
 
                                 {/* aria-live : les messages (arrivée d'un invité, morceau sauté) sont annoncés. */}
-                                <p aria-live="polite" className="ml-2 min-w-0 flex-1 truncate text-base text-amber-200">
+                                <p
+                                    aria-live="polite"
+                                    // Une erreur peut être longue : elle passe à la ligne au lieu d'être tronquée.
+                                    className={`ml-2 min-w-0 flex-1 text-base ${notice?.error ? 'text-rose-300' : 'truncate text-amber-200'}`}
+                                >
                                     {notice && (
-                                        <span className="inline-flex items-center gap-2">
-                                            <CircleAlert aria-hidden="true" className="h-4 w-4 shrink-0" />
-                                            {notice}
+                                        <span className="inline-flex items-start gap-2">
+                                            <CircleAlert aria-hidden="true" className="mt-1 h-4 w-4 shrink-0" />
+                                            <span>{notice.text}</span>
+                                            {notice.error && (
+                                                <button type="button" onClick={() => setNotice(null)} aria-label="Fermer le message" className="ml-1 text-slate-400 hover:text-white">
+                                                    <X aria-hidden="true" className="mt-0.5 h-4 w-4" />
+                                                </button>
+                                            )}
                                         </span>
                                     )}
                                 </p>

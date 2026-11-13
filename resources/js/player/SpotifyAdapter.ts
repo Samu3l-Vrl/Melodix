@@ -15,7 +15,11 @@ import { loadScript } from '@/player/loadScript';
 import type { Track } from '@/types';
 
 const SDK_URL = 'https://sdk.scdn.co/spotify-player.js';
-const PLAY_ENDPOINT = 'https://api.spotify.com/v1/me/player/play';
+const PLAYER_ENDPOINT = 'https://api.spotify.com/v1/me/player';
+const PLAY_ENDPOINT = `${PLAYER_ENDPOINT}/play`;
+/** Tentatives de lancement d'un morceau quand Spotify ne trouve pas encore l'appareil (404) ou est surchargé. */
+const PLAY_ATTEMPTS = 5;
+const PLAY_RETRY_DELAY_MS = 1000;
 const PROGRESS_INTERVAL_MS = 500;
 /** Délai maximal pour que l'appareil du SDK soit prêt. */
 const READY_TIMEOUT_MS = 15000;
@@ -75,12 +79,23 @@ export class SpotifyAdapter implements PlayerAdapter {
         // utilisateur, sans quoi certains navigateurs bloquent la lecture automatique.
         const ready = this.ensureDevice();
         await this.player?.activateElement();
-        await ready;
+        const deviceId = await ready;
+
+        // On désigne tout de suite l'onglet comme appareil actif, sans lancer de son : Spotify finit ainsi
+        // d'enregistrer l'appareil avant le premier morceau. Échec sans conséquence (load() réessaie).
+        try {
+            await fetch(PLAYER_ENDPOINT, {
+                method: 'PUT',
+                headers: { Authorization: `Bearer ${await this.options.getToken()}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ device_ids: [deviceId], play: false }),
+            });
+        } catch {
+            // Volontairement ignoré.
+        }
     }
 
     async load(track: Track, options: LoadOptions): Promise<void> {
         const deviceId = await this.ensureDevice();
-        const token = await this.options.getToken();
         const uri = `spotify:track:${track.provider_track_id}`;
 
         this.loadedUri = uri;
@@ -89,20 +104,7 @@ export class SpotifyAdapter implements PlayerAdapter {
         this.lastPositionMs = options.positionMs;
         this.lastDurationMs = track.duration_ms;
 
-        // `uris` avec un seul morceau : pas de contexte (album/playlist), donc rien ne s'enchaîne après.
-        // C'est le serveur, pas Spotify, qui décide du morceau suivant.
-        const response = await fetch(`${PLAY_ENDPOINT}?device_id=${encodeURIComponent(deviceId)}`, {
-            method: 'PUT',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uris: [uri], position_ms: Math.max(0, Math.floor(options.positionMs)) }),
-        });
-
-        if (!response.ok) {
-            throw new PlayerError(
-                response.status === 401 || response.status === 403 ? 'auth' : 'unplayable',
-                `Spotify a refusé la lecture (HTTP ${response.status})`,
-            );
-        }
+        await this.startPlayback(deviceId, uri, options.positionMs);
 
         if (!options.autoplay) {
             // L'API Web n'a pas de "charger sans jouer" : on met en pause aussitôt.
@@ -110,6 +112,47 @@ export class SpotifyAdapter implements PlayerAdapter {
         }
 
         this.startProgress();
+    }
+
+    /**
+     * Lance le morceau sur l'appareil de l'onglet via l'API Web.
+     *
+     * Juste après l'événement `ready`, Spotify répond souvent 404 (« Device not found ») pendant
+     * quelques secondes, le temps d'enregistrer l'appareil. Ce n'est pas un morceau illisible :
+     * on réessaie, comme pour une surcharge passagère (429, 5xx). Sans ces nouvelles tentatives,
+     * le premier morceau de la soirée était sauté au bout d'une seconde.
+     */
+    private async startPlayback(deviceId: string, uri: string, positionMs: number): Promise<void> {
+        let lastStatus = 0;
+
+        for (let attempt = 1; attempt <= PLAY_ATTEMPTS; attempt++) {
+            const token = await this.options.getToken();
+
+            // `uris` avec un seul morceau : pas de contexte (album/playlist), donc rien ne s'enchaîne après.
+            // C'est le serveur, pas Spotify, qui décide du morceau suivant.
+            const response = await fetch(`${PLAY_ENDPOINT}?device_id=${encodeURIComponent(deviceId)}`, {
+                method: 'PUT',
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uris: [uri], position_ms: Math.max(0, Math.floor(positionMs)) }),
+            });
+
+            if (response.ok) {
+                return;
+            }
+
+            lastStatus = response.status;
+
+            const retryable = lastStatus === 404 || lastStatus === 429 || lastStatus === 401 || lastStatus >= 500;
+
+            if (!retryable || attempt === PLAY_ATTEMPTS) {
+                break;
+            }
+
+            const retryAfter = Number(response.headers.get('Retry-After'));
+            await wait(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : PLAY_RETRY_DELAY_MS * attempt);
+        }
+
+        throw toPlaybackError(lastStatus);
     }
 
     async play(): Promise<void> {
@@ -210,17 +253,16 @@ export class SpotifyAdapter implements PlayerAdapter {
     }
 
     /**
-     * Le SDK n'émet pas d'event de fin. Quand un morceau lancé seul se termine, le lecteur
-     * repasse en pause à la position 0 et le morceau apparaît dans `previous_tracks`.
-     * On exige en plus que la lecture ait réellement commencé, pour ne pas confondre avec
-     * l'état transitoire "en pause à 0" observé juste après le chargement.
+     * Le SDK n'émet pas d'event de fin. Quand un morceau lancé seul se termine, le lecteur repasse
+     * en pause à la position 0. Cet état existe aussi, brièvement, au chargement ou pendant une
+     * mise en mémoire tampon : on n'en conclut donc à une fin QUE si la lecture a vraiment commencé
+     * ET si la dernière position connue était à moins de 3 s de la fin du morceau.
+     * (La position est relevée à chaque event ET toutes les 500 ms par startProgress.)
      */
     private handleState(state: Spotify.WebPlaybackState | null): void {
-        if (!state || this.loadedUri === null) {
+        if (!state || this.loadedUri === null || state.track_window.current_track.uri !== this.loadedUri) {
             return;
         }
-
-        const { current_track: current, previous_tracks: previous } = state.track_window;
 
         if (!state.paused && state.position > 0) {
             this.hasStarted = true;
@@ -232,8 +274,7 @@ export class SpotifyAdapter implements PlayerAdapter {
         }
 
         const wentThrough = this.lastDurationMs > 0 && this.lastPositionMs >= this.lastDurationMs - END_TOLERANCE_MS;
-        const listedAsPrevious = previous.some((track) => track.uri === current.uri || track.id === current.id);
-        const finished = this.hasStarted && state.paused && state.position === 0 && (listedAsPrevious || wentThrough);
+        const finished = this.hasStarted && state.paused && state.position === 0 && wentThrough;
 
         if (finished && !this.endedEmitted) {
             this.endedEmitted = true;
@@ -249,6 +290,9 @@ export class SpotifyAdapter implements PlayerAdapter {
 
         this.progressTimer = setInterval(() => {
             void this.player?.getCurrentState().then((state) => {
+                // Même analyse que pour un event : tient la dernière position à jour pour la détection de fin.
+                this.handleState(state);
+
                 if (state && !state.paused) {
                     this.progress.emit(state.position, state.duration);
                 }
@@ -261,5 +305,23 @@ export class SpotifyAdapter implements PlayerAdapter {
             clearInterval(this.progressTimer);
             this.progressTimer = null;
         }
+    }
+}
+
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Traduit le dernier refus de l'API Web en erreur commune, avec un message utile à l'hôte. */
+function toPlaybackError(status: number): PlayerError {
+    switch (status) {
+        case 401:
+            return new PlayerError('auth', 'Session Spotify expirée : reconnectez-vous depuis l\'accueil');
+        case 403:
+            return new PlayerError('auth', 'Spotify refuse la lecture (compte Premium requis)');
+        case 404:
+            return new PlayerError('init', 'Spotify ne trouve pas le lecteur de ce navigateur (HTTP 404)');
+        case 429:
+            return new PlayerError('playback', 'Spotify limite temporairement les requêtes (HTTP 429)');
+        default:
+            return new PlayerError('playback', `Spotify a refusé la lecture (HTTP ${status})`);
     }
 }

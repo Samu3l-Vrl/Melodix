@@ -207,6 +207,11 @@ function toPlayerError(code: number): PlayerError {
             return new PlayerError('unplayable', "L'ayant droit interdit la lecture intégrée de cette vidéo");
         case 2:
             return new PlayerError('unplayable', 'Identifiant de vidéo invalide');
+        case 5:
+            return new PlayerError('playback', 'Le navigateur ne parvient pas à lire cette vidéo (HTML5)');
+        case 153:
+            // Le lecteur n'a pas reçu l'origine de la page (en-tête Referer) : touche toutes les vidéos.
+            return new PlayerError('init', 'YouTube refuse le lecteur intégré (erreur 153 : origine de la page absente)');
         default:
             return new PlayerError('playback', `Erreur du lecteur YouTube (${code})`);
     }
