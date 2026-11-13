@@ -189,13 +189,15 @@ function fakeSpotifyPlaylist(string $id = '3cEYpjA9oz9GiPac4AsH4n'): void
     ]];
 
     Http::fake([
-        "api.spotify.com/v1/playlists/{$id}/tracks*" => Http::sequence()
-            ->push(['items' => [$track('sp1', 'One More Time'), $track('sp2', 'Aerodynamic')], 'next' => 'https://api.spotify.com/v1/…?offset=100'])
-            ->push(['items' => [
-                $track('sp3', 'Digital Love'),
-                ['track' => ['type' => 'episode', 'id' => 'ep1', 'name' => 'Un podcast', 'duration_ms' => 1_000_000]],
-                ['track' => ['type' => 'track', 'id' => null, 'name' => 'Fichier local', 'is_local' => true, 'duration_ms' => 1000]],
-            ], 'next' => null]),
+        "api.spotify.com/v1/playlists/{$id}/items?offset=100*" => Http::response(['items' => [
+            $track('sp3', 'Digital Love'),
+            ['track' => ['type' => 'episode', 'id' => 'ep1', 'name' => 'Un podcast', 'duration_ms' => 1_000_000]],
+            ['track' => ['type' => 'track', 'id' => null, 'name' => 'Fichier local', 'is_local' => true, 'duration_ms' => 1000]],
+        ], 'next' => null]),
+        "api.spotify.com/v1/playlists/{$id}/items*" => Http::response([
+            'items' => [$track('sp1', 'One More Time'), $track('sp2', 'Aerodynamic')],
+            'next' => "https://api.spotify.com/v1/playlists/{$id}/items?offset=100&limit=100",
+        ]),
         "api.spotify.com/v1/playlists/{$id}*" => Http::response(['id' => $id, 'name' => 'Discovery', 'images' => [['url' => 'https://i.scdn.co/image/cover']]]),
     ]);
 }
@@ -217,9 +219,52 @@ it('crée un salon avec une playlist Spotify', function () {
         ->and($room->playlist_position)->toBe(0);
 
     // Le jeton PERSONNEL de l'hôte est utilisé (playlists privées), avec le marché configuré.
-    Http::assertSent(fn (Request $r) => str_contains($r->url(), '/playlists/3cEYpjA9oz9GiPac4AsH4n/tracks')
+    Http::assertSent(fn (Request $r) => str_contains($r->url(), '/playlists/3cEYpjA9oz9GiPac4AsH4n/items')
         && $r->hasHeader('Authorization', 'Bearer host-token')
-        && $r['market'] === 'FR');
+        && ($r->data()['market'] ?? null) === 'FR');
+});
+
+it('se rabat sur l\'ancien chemin /tracks quand /items n\'existe pas', function () {
+    $id = '3cEYpjA9oz9GiPac4AsH4n';
+    Http::fake([
+        "api.spotify.com/v1/playlists/{$id}/items*" => Http::response(['error' => ['status' => 404]], 404),
+        "api.spotify.com/v1/playlists/{$id}/tracks*" => Http::response(['items' => [
+            ['track' => ['type' => 'track', 'id' => 'sp9', 'name' => 'Veridis Quo', 'duration_ms' => 345_000, 'artists' => [['name' => 'Daft Punk']], 'album' => ['images' => []]]],
+        ], 'next' => null]),
+        "api.spotify.com/v1/playlists/{$id}*" => Http::response(['id' => $id, 'name' => 'Ancienne API', 'images' => []]),
+    ]);
+
+    $this->actingAs(User::factory()->create())->post('/rooms', ['playlist_url' => "spotify:playlist:{$id}"])->assertRedirect();
+
+    expect(Room::query()->sole()->playlist->tracks->pluck('provider_track_id')->all())->toBe(['sp9']);
+});
+
+it('lit les morceaux rangés sous « item » (nouveau format de l\'API)', function () {
+    $id = '3cEYpjA9oz9GiPac4AsH4n';
+    Http::fake([
+        "api.spotify.com/v1/playlists/{$id}/items*" => Http::response(['items' => [
+            ['item' => ['type' => 'track', 'id' => 'sp7', 'name' => 'Voyager', 'duration_ms' => 227_000, 'artists' => [['name' => 'Daft Punk']], 'album' => ['images' => []]]],
+        ], 'next' => null]),
+        "api.spotify.com/v1/playlists/{$id}*" => Http::response(['id' => $id, 'name' => 'Nouvelle API', 'images' => []]),
+    ]);
+
+    $this->actingAs(User::factory()->create())->post('/rooms', ['playlist_url' => "spotify:playlist:{$id}"])->assertRedirect();
+
+    expect(Room::query()->sole()->playlist->tracks->pluck('provider_track_id')->all())->toBe(['sp7']);
+});
+
+it('affiche le détail de l\'erreur Spotify à l\'hôte', function () {
+    $id = '3cEYpjA9oz9GiPac4AsH4n';
+    Http::fake([
+        "api.spotify.com/v1/playlists/{$id}/items*" => Http::response(['error' => ['status' => 403]], 403),
+        "api.spotify.com/v1/playlists/{$id}/tracks*" => Http::response(['error' => ['status' => 403]], 403),
+        "api.spotify.com/v1/playlists/{$id}*" => Http::response(['id' => $id, 'name' => 'Bloquée', 'images' => []]),
+    ]);
+
+    $this->actingAs(User::factory()->create())
+        ->from('/')
+        ->post('/rooms', ['playlist_url' => "spotify:playlist:{$id}"])
+        ->assertSessionHasErrors(['playlist_url' => 'La source n\'a pas répondu correctement : Spotify a refusé la lecture des morceaux de la playlist (/items : HTTP 403, /tracks : HTTP 403). Réessayez dans un instant.']);
 });
 
 it('crée un salon avec une playlist YouTube, en ignorant les vidéos non intégrables', function () {

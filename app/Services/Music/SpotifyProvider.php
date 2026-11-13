@@ -145,35 +145,55 @@ class SpotifyProvider implements MusicProvider
     public function playlist(string $playlistId, string $userToken, int $maxTracks): ?PlaylistData
     {
         $http = $this->userRequest($userToken);
-        $meta = $http->get(self::API_URL.'/playlists/'.rawurlencode($playlistId), [
-            'market' => config('services.spotify.market'),
-            'fields' => 'id,name,images',
-        ]);
+        $base = self::API_URL.'/playlists/'.rawurlencode($playlistId);
+        $query = ['market' => config('services.spotify.market'), 'limit' => 100];
+
+        // Pas de paramètre `fields` : sa syntaxe dépend de la version de l'API et un refus (400) bloquerait tout.
+        $meta = $http->get($base, ['market' => config('services.spotify.market')]);
 
         if (in_array($meta->status(), [403, 404], true)) {
             return null;
         }
 
         if ($meta->failed()) {
-            throw new ProviderException("Spotify playlists a répondu HTTP {$meta->status()}.");
+            throw new ProviderException("Spotify a répondu HTTP {$meta->status()} en lisant la playlist.");
+        }
+
+        // Première page de morceaux. Spotify a remplacé `/playlists/{id}/tracks` par `/playlists/{id}/items`
+        // (au moins pour les nouvelles applications) : on essaie le nouveau chemin, puis l'ancien.
+        $page = null;
+        $refusals = [];
+
+        foreach (['/items', '/tracks'] as $suffix) {
+            $candidate = $http->get($base.$suffix, $query);
+
+            if ($candidate->successful()) {
+                $page = $candidate;
+
+                break;
+            }
+
+            $refusals[] = "{$suffix} : HTTP {$candidate->status()}";
+
+            // 401, 429, 5xx : une vraie panne, l'autre chemin échouerait pareil.
+            if (! in_array($candidate->status(), [400, 403, 404, 405, 410], true)) {
+                break;
+            }
+        }
+
+        if ($page === null) {
+            throw new ProviderException('Spotify a refusé la lecture des morceaux de la playlist ('.implode(', ', $refusals).').');
         }
 
         $tracks = [];
-        $url = self::API_URL.'/playlists/'.rawurlencode($playlistId).'/tracks';
-        $query = ['market' => config('services.spotify.market'), 'limit' => 100, 'offset' => 0];
 
-        // Pagination : 100 morceaux par page, jusqu'à $maxTracks.
-        while (count($tracks) < $maxTracks) {
-            $page = $http->get($url, $query);
-
-            if ($page->failed()) {
-                throw new ProviderException("Spotify playlist tracks a répondu HTTP {$page->status()}.");
-            }
-
+        // Pagination : 100 morceaux par page, en suivant l'adresse `next` fournie par Spotify, jusqu'à $maxTracks.
+        while (true) {
             $items = $page->json('items', []);
 
             foreach ($items as $entry) {
                 // Les entrées peuvent être des épisodes de podcast ou des fichiers locaux : seuls les morceaux comptent.
+                // Selon la version de l'API, l'objet est sous `track` ou sous `item`.
                 $item = $entry['track'] ?? $entry['item'] ?? null;
 
                 if (is_array($item) && ($item['type'] ?? 'track') === 'track' && ! ($item['is_local'] ?? false)) {
@@ -185,11 +205,17 @@ class SpotifyProvider implements MusicProvider
                 }
             }
 
-            if ($page->json('next') === null || $items === []) {
+            $next = $page->json('next');
+
+            if (! is_string($next) || $items === [] || count($tracks) >= $maxTracks) {
                 break;
             }
 
-            $query['offset'] += 100;
+            $page = $http->get($next);
+
+            if ($page->failed()) {
+                throw new ProviderException("Spotify a répondu HTTP {$page->status()} en lisant la suite de la playlist.");
+            }
         }
 
         return new PlaylistData(

@@ -63,7 +63,8 @@ class PlaylistService
         } catch (ProviderException $e) {
             report($e);
 
-            throw new PlaylistException('La source n\'a pas répondu correctement. Réessayez dans un instant.');
+            // Le détail technique (code HTTP, étape) est affiché : c'est ce qui permet de diagnostiquer.
+            throw new PlaylistException("La source n'a pas répondu correctement : {$e->getMessage()} Réessayez dans un instant.");
         } catch (SpotifyAuthException) {
             throw new PlaylistException('Votre session Spotify a expiré : déconnectez-vous puis reconnectez-vous.');
         }
