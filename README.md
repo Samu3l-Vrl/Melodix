@@ -401,7 +401,15 @@ Avec Docker Desktop, les ports publiés par les conteneurs sont accessibles depu
 networkingMode=mirrored
 ```
 
-puis lancez `wsl --shutdown` dans PowerShell et rouvrez Ubuntu (Windows 11 22H2 ou plus récent).
+puis, dans PowerShell **en administrateur**, autorisez les connexions entrantes vers WSL (en mode mirrored, un pare-feu propre à WSL les bloque par défaut) :
+
+```powershell
+New-NetFirewallHyperVRule -Name "Jukebox" -DisplayName "Jukebox" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 8000,8080
+```
+
+Enfin, lancez `wsl --shutdown`, rouvrez Ubuntu et relancez `sail up -d` (Windows 11 22H2 ou plus récent).
+
+Pour savoir dans quel cas vous êtes, tapez `docker info --format '{{.OperatingSystem}}'` dans Ubuntu : « Docker Desktop » ou le nom de votre distribution (Docker installé dans WSL). Autre test : ouvrez `http://VOTRE_IP:8000/up` dans le navigateur **du PC**. Si cette page ne s'affiche pas alors que `http://127.0.0.1:8000/up` fonctionne, le port n'est pas exposé au réseau : c'est le cas « Docker dans WSL », à régler comme ci-dessus.
 
 macOS et Linux : autorisez les ports 8000 et 8080 si un pare-feu est actif.
 
