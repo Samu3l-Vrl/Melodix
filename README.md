@@ -1,149 +1,571 @@
 # Jukebox
 
-Jukebox collaboratif pour soirées. Un **écran hôte** (TV/PC) joue la musique et affiche la file ; les invités scannent un QR code et ajoutent des morceaux depuis leur téléphone, sans compte. Sources : Spotify et YouTube.
+Jukebox collaboratif pour soirées. Un **écran hôte** (un PC branché à la TV) joue la musique et affiche la file d'attente ; les invités scannent un QR code et ajoutent des morceaux depuis leur téléphone, sans créer de compte. Sources : Spotify et YouTube.
 
 - Écran hôte : `/room/{code}/host` (réservé à l'hôte, connecté avec Spotify)
-- Télécommande invité : `/room/{code}/join` (pseudo seul)
+- Télécommande invité : `/room/{code}/join` (un pseudo suffit)
 
-Stack : PHP 8.3, Laravel 11, Inertia 2 (React + TypeScript strict), Tailwind, Laravel Reverb + Echo, PostgreSQL 16, Redis, Sail, Pest, Vitest.
+Stack : PHP 8.3, Laravel 11, Inertia 2 (React + TypeScript strict), Tailwind, Laravel Reverb + Echo, PostgreSQL 16, Redis, Laravel Sail (Docker), Pest, Vitest.
 
-Le détail de chaque fichier (rôle, choix, pièges évités) est dans [`docs/`](docs/README.md).
+Ce guide vous emmène de zéro à une soirée qui fonctionne. Comptez **environ 45 minutes** la première fois, dont une bonne part d'attente (téléchargements Docker). Le fonctionnement interne du code est expliqué dans [`docs/`](docs/README.md).
 
-## 1. Lancement avec Sail
+---
 
-Prérequis : Docker (Docker Desktop avec intégration WSL 2 sous Windows). Sous WSL, clonez le projet **dans le système de fichiers Linux** (`~/…`), pas sous `/mnt/c` : c'est beaucoup plus rapide et le rechargement à chaud de Vite fonctionne sans réglage.
+## Sommaire
+
+0. [Comment ça marche physiquement](#0-comment-ça-marche-physiquement)
+1. [Prérequis](#1-prérequis)
+2. [Récupérer le code](#2-récupérer-le-code)
+3. [Créer l'application Spotify](#3-créer-lapplication-spotify)
+4. [Créer la clé YouTube](#4-créer-la-clé-youtube)
+5. [Configurer le fichier `.env`](#5-configurer-le-fichier-env)
+6. [Installer et démarrer](#6-installer-et-démarrer)
+7. [Premier essai sur votre PC](#7-premier-essai-sur-votre-pc)
+8. [Ouvrir l'accès aux téléphones](#8-ouvrir-laccès-aux-téléphones)
+9. [Le jour de la soirée](#9-le-jour-de-la-soirée)
+10. [Commandes du quotidien](#10-commandes-du-quotidien)
+11. [Dépannage](#11-dépannage)
+12. [Lancer les tests](#12-lancer-les-tests)
+13. [Limites à connaître](#13-limites-à-connaître)
+
+---
+
+## 0. Comment ça marche physiquement
+
+```
+        Wi-Fi de la maison
+   ┌───────────────────────────────────────────────┐
+   │                                               │
+   │   PC (Docker + l'application)  ──HDMI──►  TV  │
+   │   navigateur ouvert sur                       │
+   │   http://127.0.0.1/room/ABCD/host             │
+   │        ▲            ▲                         │
+   │        │ page web   │ temps réel (port 8080)  │
+   │        │            │                         │
+   │   📱 téléphones des invités                    │
+   │   http://192.168.1.20/room/ABCD/join          │
+   └───────────────────────────────────────────────┘
+```
+
+Trois points à comprendre avant de commencer :
+
+1. **Le PC qui fait tourner l'application est aussi l'écran hôte.** Spotify n'autorise la connexion sans HTTPS que depuis l'adresse `http://127.0.0.1`, c'est-à-dire depuis la machine elle-même. Branchez ce PC sur la TV en HDMI (ou affichez-le sur un vidéoprojecteur). Le navigateur intégré d'une TV ne convient pas : il ne sait généralement pas lire Spotify (protection DRM).
+2. **C'est le navigateur de ce PC qui joue la musique.** Les haut-parleurs sont ceux du PC ou de la TV.
+3. **Les téléphones doivent être sur le même Wi-Fi** et pouvoir joindre le PC (étape 8).
+
+---
+
+## 1. Prérequis
+
+### Matériel et comptes
+
+| Élément | Pourquoi |
+| --- | --- |
+| Un PC Windows 10/11, macOS ou Linux, 8 Go de RAM conseillés | Il fait tourner Docker et joue la musique |
+| Google Chrome, Edge ou Firefox récent sur ce PC | Le lecteur Spotify a besoin d'un navigateur avec DRM activé |
+| Un compte **Spotify Premium** | Obligatoire pour lire du Spotify dans le navigateur. Sans Premium, l'application fonctionne en **YouTube seulement** |
+| Un compte Google | Pour la clé d'API YouTube (gratuite) |
+| Un compte Spotify (même gratuit) pour le tableau de bord développeur | Pour créer l'application Spotify |
+
+### Logiciels
+
+**Windows** — tout se passe dans WSL 2 (un Linux intégré à Windows) :
+
+1. Ouvrez PowerShell **en administrateur** et lancez :
+
+   ```powershell
+   wsl --install -d Ubuntu
+   ```
+
+   Redémarrez si demandé, puis ouvrez « Ubuntu » depuis le menu Démarrer et choisissez un nom d'utilisateur et un mot de passe Linux.
+2. Installez [Docker Desktop](https://www.docker.com/products/docker-desktop/). Dans *Settings → General*, cochez **Use the WSL 2 based engine** ; dans *Settings → Resources → WSL integration*, activez **Ubuntu**.
+3. Dans le terminal Ubuntu, vérifiez :
+
+   ```bash
+   docker run --rm hello-world
+   ```
+
+   Vous devez lire « Hello from Docker! ».
+
+> **Important sous Windows :** toutes les commandes de ce guide se tapent dans le terminal **Ubuntu**, pas dans PowerShell (sauf mention contraire), et le projet doit être rangé dans votre dossier Linux (`~/…`), **pas** dans `/mnt/c/…`. Sous `/mnt/c`, tout est 5 à 10 fois plus lent et le rechargement automatique du code ne fonctionne pas.
+
+**macOS** : installez [Docker Desktop](https://www.docker.com/products/docker-desktop/) et lancez-le. Utilisez l'application Terminal.
+
+**Linux** : installez Docker Engine et le plugin Compose ([documentation officielle](https://docs.docker.com/engine/install/)), et ajoutez votre utilisateur au groupe `docker`.
+
+Dans tous les cas, `git` est nécessaire :
+
+```bash
+git --version
+```
+
+S'il manque (Ubuntu) :
+
+```bash
+sudo apt update && sudo apt install -y git
+```
+
+---
+
+## 2. Récupérer le code
+
+```bash
+cd ~
+```
+
+```bash
+git clone -b claude/gifted-archimedes-nyilpp https://github.com/Samu3l-Vrl/Melodix.git jukebox
+```
+
+```bash
+cd jukebox
+```
+
+Le code se trouve pour l'instant sur la branche `claude/gifted-archimedes-nyilpp`. Une fois cette branche fusionnée dans la branche principale, retirez `-b claude/gifted-archimedes-nyilpp` de la commande. Si le dépôt est privé, Git vous demandera de vous authentifier ([jeton d'accès GitHub](https://docs.github.com/fr/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) à la place du mot de passe).
+
+Créez votre fichier de configuration à partir du modèle :
 
 ```bash
 cp .env.example .env
 ```
 
-Installe les dépendances PHP sans PHP local (Sail lui-même se trouve dans `vendor/`) :
+Vous le remplirez à l'étape 5. Le fichier `.env` contient vos secrets : il est ignoré par Git, ne le partagez pas.
+
+---
+
+## 3. Créer l'application Spotify
+
+Cette application sert à deux choses : connecter l'hôte avec son compte Spotify, et faire les recherches Spotify des invités.
+
+1. Allez sur <https://developer.spotify.com/dashboard> et connectez-vous. Acceptez les conditions développeur si c'est votre première visite.
+2. Cliquez sur **Create app** et remplissez :
+
+   | Champ | Valeur |
+   | --- | --- |
+   | App name | `Jukebox` (libre) |
+   | App description | `Jukebox de soirée` (libre) |
+   | Website | laisser vide |
+   | **Redirect URIs** | `http://127.0.0.1/auth/spotify/callback` puis cliquez sur **Add** |
+   | **Which API/SDKs are you planning to use?** | cochez **Web API** et **Web Playback SDK** |
+
+   Acceptez les conditions et cliquez sur **Save**.
+
+   ⚠️ L'adresse de redirection doit être recopiée **exactement** : `http`, `127.0.0.1` (pas `localhost`, refusé par Spotify), pas de `/` final. Si vous changez de port à l'étape 11, ajoutez le port ici aussi (`http://127.0.0.1:8000/auth/spotify/callback`).
+3. Ouvrez l'application, puis **Settings**. Notez le **Client ID**, cliquez sur **View client secret** et notez le **Client secret**.
+4. Onglet **User Management** : ajoutez le nom et l'adresse e-mail du **compte Spotify de l'hôte** (celui qui sera branché sur la TV, s'il est différent du vôtre). Une application nouvellement créée est en « mode développement » : seuls les comptes listés ici peuvent s'y connecter, dans une limite fixée par Spotify (indiquée sur cette page). Les invités, eux, n'ont pas besoin d'y figurer : ils ne se connectent jamais à Spotify.
+
+---
+
+## 4. Créer la clé YouTube
+
+1. Allez sur <https://console.cloud.google.com> et connectez-vous avec votre compte Google.
+2. En haut à gauche, cliquez sur le sélecteur de projet → **Nouveau projet** → nom `Jukebox` → **Créer**. Vérifiez que ce projet est bien sélectionné.
+3. Menu ☰ → **API et services** → **Bibliothèque**. Cherchez **YouTube Data API v3**, ouvrez-la et cliquez sur **Activer**.
+4. Menu ☰ → **API et services** → **Identifiants** → **Créer des identifiants** → **Clé API**. Copiez la clé affichée.
+5. Recommandé : cliquez sur **Modifier la clé API**, puis dans **Restrictions relatives aux API**, choisissez **Restreindre la clé** et cochez uniquement **YouTube Data API v3**. Enregistrez. Si la clé fuite, elle ne pourra servir à rien d'autre.
+   Ne mettez pas de restriction « Sites web (référents HTTP) » : la clé est utilisée par le serveur, pas par le navigateur, et serait alors refusée.
+
+Aucune carte bancaire n'est nécessaire. Le quota gratuit est de 10 000 unités par jour ; une recherche en coûte 101, soit **environ 90 recherches différentes par jour**. Chaque recherche est gardée en cache une heure (une même recherche répétée ne coûte rien), et l'application s'arrête d'elle-même avant d'atteindre la limite. Le quota se remet à zéro chaque jour à minuit, heure du Pacifique (9 h du matin à Paris).
+
+---
+
+## 5. Configurer le fichier `.env`
+
+Ouvrez le fichier `.env` créé à l'étape 2. Sous Windows, le plus simple est :
+
+```bash
+code .env
+```
+
+(VS Code avec l'extension WSL), ou `nano .env` dans le terminal (Ctrl+O pour enregistrer, Ctrl+X pour quitter).
+
+Seules ces lignes sont à modifier pour l'instant :
+
+```dotenv
+SPOTIFY_CLIENT_ID=collez-ici-le-client-id
+SPOTIFY_CLIENT_SECRET=collez-ici-le-client-secret
+YOUTUBE_API_KEY=collez-ici-la-cle-youtube
+```
+
+Tout le reste est déjà réglé pour Sail. Pour information, les autres réglages utiles :
+
+| Variable | Valeur par défaut | Quand la changer |
+| --- | --- | --- |
+| `APP_URL` | `http://127.0.0.1` | Si vous changez de port (voir « Le port 80 est déjà utilisé » au §11) |
+| `APP_PORT` | `80` | Idem |
+| `JUKEBOX_PUBLIC_URL` | vide | À l'étape 8, pour les téléphones |
+| `SPOTIFY_MARKET` | `FR` | Si vous êtes dans un autre pays (code à 2 lettres : `BE`, `CH`, `CA`…) |
+| `YOUTUBE_DAILY_QUOTA` | `9500` | Si Google vous a accordé un quota plus élevé |
+| `JUKEBOX_INACTIVITY_HOURS` | `12` | Délai avant fermeture automatique d'un salon inutilisé |
+| `REVERB_APP_KEY`, `REVERB_APP_SECRET` | valeurs d'exemple | Remplacez-les par des chaînes aléatoires si l'application est exposée au-delà de votre réseau local |
+
+Ne touchez pas à `DB_HOST=pgsql`, `REDIS_HOST=redis` ni `REVERB_HOST=reverb` : ce sont les noms des conteneurs Docker.
+
+---
+
+## 6. Installer et démarrer
+
+Toutes les commandes se lancent depuis le dossier `jukebox`.
+
+### 6.1 Installer les dépendances PHP (une seule fois)
+
+Sail lui-même fait partie des dépendances PHP : il faut donc les installer une première fois avec un conteneur temporaire, sans avoir PHP sur votre machine.
 
 ```bash
 docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/var/www/html" -w /var/www/html laravelsail/php83-composer:latest composer install --ignore-platform-reqs
 ```
 
-Démarre les 5 conteneurs (application, Reverb, planificateur, PostgreSQL, Redis) :
+Durée : 1 à 3 minutes. À la fin, un dossier `vendor/` existe.
+
+### 6.2 Créer un raccourci `sail`
+
+Pour taper `sail` au lieu de `./vendor/bin/sail` :
 
 ```bash
-./vendor/bin/sail up -d
+echo "alias sail='sh \$([ -f sail ] && echo sail || echo vendor/bin/sail)'" >> ~/.bashrc && source ~/.bashrc
 ```
+
+(Sur macOS avec zsh, remplacez `~/.bashrc` par `~/.zshrc`.) La suite du guide utilise `sail`.
+
+### 6.3 Démarrer les conteneurs
 
 ```bash
-./vendor/bin/sail artisan key:generate
+sail up -d
 ```
+
+La **première fois**, Docker construit l'image PHP et télécharge PostgreSQL et Redis : comptez 5 à 15 minutes. Les fois suivantes, quelques secondes.
+
+Vérifiez que les cinq services tournent :
 
 ```bash
-./vendor/bin/sail artisan migrate
+sail ps
 ```
+
+Vous devez voir `laravel.test`, `reverb`, `scheduler`, `pgsql` et `redis` à l'état `running` (ou `Up`).
+
+| Service | Rôle |
+| --- | --- |
+| `laravel.test` | L'application web (port 80) et le serveur Vite (port 5173) |
+| `reverb` | Le serveur temps réel (WebSocket, port 8080) |
+| `scheduler` | Ferme les salons inutilisés toutes les heures |
+| `pgsql` | La base de données |
+| `redis` | Cache des recherches, sessions, compteur du quota YouTube |
+
+### 6.4 Préparer l'application (une seule fois)
+
+Génère la clé de chiffrement de l'application (elle protège notamment les jetons Spotify stockés en base) :
 
 ```bash
-./vendor/bin/sail npm install
+sail artisan key:generate
 ```
 
-Serveur Vite avec rechargement à chaud (à laisser tourner) :
+Crée les tables :
 
 ```bash
-./vendor/bin/sail npm run dev
+sail artisan migrate
 ```
 
-L'application répond sur **http://127.0.0.1** (pas `localhost`, voir ci-dessous). Reverb écoute sur le port 8080.
+Installe les dépendances JavaScript :
 
-## 2. Variables d'environnement à créer
-
-### Spotify
-
-1. Créez une application sur <https://developer.spotify.com/dashboard>.
-2. API utilisées : cochez **Web API** et **Web Playback SDK**.
-3. Redirect URI : `http://127.0.0.1/auth/spotify/callback`. Spotify refuse `http://localhost` ; en local seule l'adresse de bouclage `127.0.0.1` est acceptée sans HTTPS. Ouvrez donc toujours l'écran hôte sur `http://127.0.0.1`.
-4. Tant que l'application Spotify est en « mode développement », seuls les comptes ajoutés dans *User Management* peuvent se connecter.
-
-```dotenv
-SPOTIFY_CLIENT_ID=...
-SPOTIFY_CLIENT_SECRET=...
-SPOTIFY_REDIRECT_URI="${APP_URL}/auth/spotify/callback"
-SPOTIFY_MARKET=FR
+```bash
+sail npm install
 ```
 
-La lecture Spotify exige un compte **Premium** pour l'hôte. Sans Premium, elle est désactivée et les invités ne voient que des résultats YouTube.
+Redémarre Reverb et le planificateur pour qu'ils lisent la nouvelle clé :
 
-### YouTube
-
-1. Dans <https://console.cloud.google.com>, créez un projet et activez **YouTube Data API v3**.
-2. Créez une **clé d'API** (Identifiants → Créer des identifiants → Clé d'API).
-
-```dotenv
-YOUTUBE_API_KEY=...
-YOUTUBE_DAILY_QUOTA=9500
+```bash
+sail restart reverb scheduler
 ```
 
-Le quota gratuit est de 10 000 unités par jour et une recherche en coûte 101 : environ 90 recherches *non mises en cache* par jour. L'application met chaque recherche en cache une heure et cesse d'appeler YouTube quand le budget est atteint.
+### 6.5 Compiler l'interface
 
-### Accès depuis les téléphones
+Deux façons de faire, selon votre usage :
 
-Le QR code doit pointer vers une adresse que les téléphones peuvent joindre, pas `127.0.0.1` :
+- **Pour modifier le code** (rechargement automatique à chaque modification) — à laisser tourner dans un terminal dédié :
+
+  ```bash
+  sail npm run dev
+  ```
+
+  Dans ce mode, **seul le PC** peut afficher les pages : les téléphones ne peuvent pas joindre le serveur de développement.
+
+- **Pour une soirée** (fichiers compilés, accessibles aux téléphones) :
+
+  ```bash
+  sail npm run build
+  ```
+
+  À relancer après chaque modification du code ou des variables `VITE_*`.
+
+Pour le premier essai sur le PC, l'une ou l'autre convient. Si vous hésitez, prenez `sail npm run build`.
+
+### Ce que vous devez voir
+
+Ouvrez **http://127.0.0.1** dans le navigateur du PC (et pas `localhost`). La page d'accueil « Jukebox » s'affiche, avec « Rejoindre un salon » et « Se connecter avec Spotify ».
+
+---
+
+## 7. Premier essai sur votre PC
+
+Faites ce test sur le PC seul avant d'impliquer des téléphones.
+
+**Onglet 1 — l'hôte**, fenêtre normale, sur `http://127.0.0.1` :
+
+1. Cliquez sur **Se connecter avec Spotify**, connectez-vous et acceptez les autorisations. Vous revenez sur l'accueil avec votre nom.
+   - Un message jaune « compte non Premium » signifie que seul YouTube sera disponible.
+2. Cliquez sur **Créer un salon**. Vous arrivez sur l'écran hôte avec un code à 4 lettres (par exemple `KZPW`).
+3. Cliquez sur **Démarrer la session**. Ce clic est indispensable : les navigateurs interdisent de jouer du son sans action de l'utilisateur. En haut à droite, l'indicateur passe à **Connecté**.
+
+**Onglet 2 — un invité**, dans une **fenêtre de navigation privée** (Ctrl+Maj+N) pour ne pas partager la connexion de l'hôte :
+
+4. Ouvrez `http://127.0.0.1/room/KZPW/join` (avec votre code). Pour simuler un téléphone : F12, puis l'icône téléphone/tablette.
+5. Saisissez un pseudo. Sur l'onglet hôte apparaît « … a rejoint la soirée ».
+6. Tapez une recherche d'au moins 3 caractères. Après une courte pause, des résultats apparaissent avec un badge **Spotify** ou **YouTube**.
+7. Touchez **+** sur un résultat. Le bouton passe à **Ajouté** et **la musique démarre toute seule sur l'onglet hôte**.
+8. Ajoutez deux ou trois autres morceaux : ils apparaissent instantanément dans la file des deux onglets, avec le pseudo de l'auteur.
+
+Essayez ensuite, sur l'écran hôte : pause / lecture, cliquer dans la barre de progression, les flèches pour réordonner, la corbeille pour retirer, le bouton « suivant ».
+
+Si une étape échoue, voyez le [dépannage](#11-dépannage).
+
+Sans clés d'API, vous pouvez quand même découvrir l'interface invité avec des données de démonstration : `sail artisan db:seed` crée un salon avec trois morceaux et affiche son code (ouvrez alors `http://127.0.0.1/room/CODE/join`).
+
+---
+
+## 8. Ouvrir l'accès aux téléphones
+
+### 8.1 Trouver l'adresse IP du PC sur le Wi-Fi
+
+- **Windows** : dans PowerShell, tapez `ipconfig` et relevez l'« Adresse IPv4 » de la carte « Wi-Fi » (ou « Ethernet » si le PC est câblé), par exemple `192.168.1.20`. Ne prenez **pas** l'adresse de la carte « vEthernet (WSL) ».
+- **macOS** : Réglages Système → Wi-Fi → Détails → Adresse IP.
+- **Linux** : `hostname -I` (la première adresse).
+
+### 8.2 L'indiquer à l'application
+
+Dans `.env` :
 
 ```dotenv
 JUKEBOX_PUBLIC_URL=http://192.168.1.20
 ```
 
-Remplacez par l'adresse IP de votre machine sur le Wi-Fi. Sous WSL 2, les ports 80 et 8080 doivent être accessibles depuis le réseau local : activez le mode réseau « mirrored » (`networkingMode=mirrored` dans `.wslconfig`) ou créez des redirections `netsh interface portproxy`, et autorisez ces ports dans le pare-feu Windows.
+Le QR code affiché sur l'écran hôte pointera désormais vers cette adresse. Rechargez l'écran hôte pour le voir changer (aucun redémarrage nécessaire).
 
-Pour un test sur téléphone, servez les fichiers compilés plutôt que le serveur Vite (dont l'adresse `localhost:5173` est inconnue du téléphone) : arrêtez `npm run dev`, puis
+Conseil : l'adresse IP peut changer d'un jour à l'autre. Dans l'interface de votre box, réservez une adresse fixe pour ce PC (« bail DHCP statique » ou « IP fixe »).
 
-```bash
-./vendor/bin/sail npm run build
+### 8.3 Autoriser les connexions entrantes (Windows)
+
+Le pare-feu Windows bloque par défaut les connexions venant des téléphones. Dans PowerShell **en administrateur** :
+
+```powershell
+New-NetFirewallRule -DisplayName "Jukebox" -Direction Inbound -Protocol TCP -LocalPort 80,8080 -Action Allow -Profile Private
 ```
 
-Après toute modification du `.env` : `./vendor/bin/sail up -d` relit les variables des conteneurs, et relancez `npm run dev` ou `npm run build` (les variables `VITE_*` sont figées à la compilation).
+Vérifiez aussi que votre réseau Wi-Fi est en profil **Privé** : Paramètres → Réseau et Internet → Wi-Fi → (votre réseau) → Type de profil réseau → **Réseau privé**.
 
-## 3. Tests
+Avec Docker Desktop, les ports publiés par les conteneurs sont accessibles depuis le réseau local une fois le pare-feu ouvert. Si vous utilisez Docker installé directement dans WSL (sans Docker Desktop), il faut en plus activer le réseau « mirrored » : créez le fichier `C:\Users\<vous>\.wslconfig` contenant
 
-```bash
-./vendor/bin/sail artisan test
+```ini
+[wsl2]
+networkingMode=mirrored
 ```
 
-```bash
-./vendor/bin/sail npm test
-```
+puis lancez `wsl --shutdown` dans PowerShell et rouvrez Ubuntu (Windows 11 22H2 ou plus récent).
+
+macOS et Linux : autorisez les ports 80 et 8080 si un pare-feu est actif.
+
+### 8.4 Compiler l'interface
+
+Les téléphones ne peuvent pas utiliser le serveur de développement : arrêtez `sail npm run dev` s'il tourne (Ctrl+C), puis :
 
 ```bash
-./vendor/bin/sail npm run typecheck
+sail npm run build
 ```
 
-Les tests PHP utilisent la base PostgreSQL `testing` (créée automatiquement par Sail au premier démarrage du conteneur `pgsql`) et n'appellent jamais Spotify ni YouTube.
+### 8.5 Tester depuis un téléphone
 
-## 4. Parcours de test manuel (2 onglets)
+Le téléphone doit être connecté **au même Wi-Fi** que le PC.
 
-**Onglet 1 — l'hôte**, fenêtre normale, sur `http://127.0.0.1` :
+1. Dans le navigateur du téléphone, ouvrez `http://192.168.1.20/up` (votre IP). Une page « Application up » doit s'afficher. Sinon : pare-feu, mauvaise IP, ou réseau différent (voir §11).
+2. Scannez le QR code de l'écran hôte avec l'appareil photo. La page invité s'ouvre.
+3. L'indicateur Wi-Fi en haut à droite de la page invité doit être **vert**. S'il reste orange ou rouge, le port 8080 (temps réel) est bloqué.
+4. Ajoutez un morceau : il doit apparaître sur la TV.
 
-1. « Se connecter avec Spotify », acceptez les autorisations.
-2. « Créer un salon » : vous arrivez sur `/room/XXXX/host`.
-3. « Démarrer la session » (ce clic autorise le navigateur à jouer du son). L'indicateur passe à « Connecté ».
+---
 
-**Onglet 2 — l'invité**, fenêtre de navigation privée (pour ne pas partager la session de l'hôte), outils de développement en mode mobile (F12 → icône téléphone), ou un vrai téléphone via le QR code :
+## 9. Le jour de la soirée
 
-4. Ouvrez `http://127.0.0.1/room/XXXX/join`, saisissez un pseudo. L'onglet hôte affiche « … a rejoint la soirée ».
-5. Tapez au moins 3 caractères : après 400 ms d'inactivité les résultats apparaissent, avec un badge Spotify ou YouTube.
-6. Touchez « + » : le bouton passe à « Ajouté », et **le morceau démarre tout seul sur l'onglet hôte**.
-7. Ajoutez 2 ou 3 autres morceaux : la file se met à jour en direct sur les deux onglets, avec le pseudo de l'auteur.
-8. Ouvrez un 3ᵉ onglet invité (autre pseudo) et ajoutez un morceau déjà en file : « Déjà en file ».
-9. Sur l'hôte : pause / lecture (la barre de l'invité se fige puis repart), flèches pour réordonner, corbeille pour retirer, « suivant » pour passer.
-10. Rechargez l'onglet hôte en pleine lecture, puis « Démarrer la session » : la lecture reprend à la bonne position.
-11. Coupez le réseau de l'onglet invité (F12 → Network → Offline), ajoutez un morceau depuis un autre onglet, rétablissez : l'indicateur repasse à « Connecté » et la file se rattrape toute seule.
+**Avant l'arrivée des invités :**
 
-Sans clés d'API, l'interface reste consultable avec des données de démonstration : `./vendor/bin/sail artisan db:seed` crée un salon avec trois morceaux en file et affiche son code.
+- [ ] Le PC est branché sur le secteur (pas sur batterie) et sur la TV.
+- [ ] La mise en veille du PC est désactivée (Windows : Paramètres → Système → Alimentation → Écran et veille → « Jamais » pour la veille sur secteur).
+- [ ] Docker Desktop est lancé, puis dans le terminal : `cd ~/jukebox && sail up -d`.
+- [ ] `sail npm run build` a été lancé depuis la dernière modification.
+- [ ] L'adresse IP du PC n'a pas changé (sinon mettez à jour `JUKEBOX_PUBLIC_URL`).
+- [ ] Les invités se connecteront au **Wi-Fi principal**, pas à un « Wi-Fi invités » : ces réseaux isolent souvent les appareils les uns des autres, et les téléphones ne verraient pas le PC.
+- [ ] Ouvrez `http://127.0.0.1`, reprenez votre salon ou créez-en un, cliquez sur **Démarrer la session**.
+- [ ] Mettez le navigateur en plein écran (F11) et laissez **cet onglet au premier plan** : en arrière-plan, le navigateur ralentit l'onglet et l'enchaînement des morceaux peut prendre du retard.
+- [ ] Testez avec votre propre téléphone : scan du QR code, ajout d'un morceau.
 
-## 5. Commandes utiles
+**Pendant la soirée :**
+
+- Si la page hôte est rechargée, cliquez de nouveau sur **Démarrer la session** : la lecture reprend où elle en était.
+- Pilotez la lecture avec les boutons de l'application (pause, suivant), pas avec les commandes du lecteur YouTube : sinon l'application ne sait pas que la lecture est en pause.
+- Un morceau illisible (vidéo dont l'intégration est interdite, par exemple) est sauté automatiquement.
+- YouTube peut afficher des publicités dans son lecteur : c'est normal, l'application ne les contourne pas.
+
+**Après la soirée :** « Fermer le salon » en haut à droite. Sinon il se ferme tout seul après 12 h sans activité. Puis `sail stop`.
+
+---
+
+## 10. Commandes du quotidien
 
 | Commande | Effet |
 | --- | --- |
-| `./vendor/bin/sail logs -f reverb` | Journal du serveur WebSocket |
-| `./vendor/bin/sail artisan reverb:start --debug` | Reverb en avant-plan, avec le détail des messages (arrêtez d'abord le service `reverb`) |
-| `./vendor/bin/sail artisan rooms:close-inactive` | Ferme les salons inactifs depuis 12 h (exécuté toutes les heures par le service `scheduler`) |
-| `./vendor/bin/sail artisan route:list` | Liste des routes |
-| `./vendor/bin/sail pint` | Formate le code PHP |
+| `sail up -d` | Démarre tout en arrière-plan |
+| `sail stop` | Arrête tout (les données sont conservées) |
+| `sail ps` | État des services |
+| `sail restart reverb scheduler` | À faire après **toute modification du `.env`** (avec `sail npm run build` si une variable `VITE_*` a changé) |
+| `sail npm run build` | Recompile l'interface |
+| `sail npm run dev` | Mode développement avec rechargement automatique (PC uniquement) |
+| `sail logs -f laravel.test` | Journal de l'application (Ctrl+C pour quitter) |
+| `sail logs -f reverb` | Journal du serveur temps réel |
+| `tail -f storage/logs/laravel.log` | Erreurs détaillées de l'application |
+| `sail artisan rooms:close-inactive` | Ferme tout de suite les salons inutilisés depuis 12 h |
+| `sail artisan migrate` | Applique les nouvelles migrations après une mise à jour du code |
+| `sail down -v` | ⚠️ Supprime les conteneurs **et la base de données** (repartir de zéro) |
 
-## Limites connues
+**Mettre à jour le code :**
 
-Voir [`docs/F-cloture.md`](docs/F-cloture.md) : hypothèses prises, limites, pistes d'évolution. Les deux plus importantes : YouTube peut afficher des publicités dans son lecteur (c'est voulu, rien n'est contourné), et Laravel 11 ne reçoit plus de correctifs de sécurité — prévoyez la montée vers Laravel 12 ou 13.
+```bash
+git pull
+```
+
+```bash
+sail composer install
+```
+
+```bash
+sail npm install
+```
+
+```bash
+sail artisan migrate
+```
+
+```bash
+sail npm run build
+```
+
+```bash
+sail restart reverb scheduler
+```
+
+---
+
+## 11. Dépannage
+
+Premier réflexe dans tous les cas : regardez les journaux avec `tail -n 50 storage/logs/laravel.log` et `sail logs reverb`.
+
+### Installation et démarrage
+
+| Symptôme | Cause probable | Solution |
+| --- | --- | --- |
+| `docker: command not found` ou `Cannot connect to the Docker daemon` | Docker Desktop n'est pas lancé, ou l'intégration WSL n'est pas activée | Lancez Docker Desktop ; vérifiez *Settings → Resources → WSL integration* |
+| `Bind for 0.0.0.0:80 failed: port is already allocated` | Un autre logiciel utilise le port 80 (IIS, Skype, autre serveur web) | Voir « Le port 80 est déjà utilisé » ci-dessous |
+| `Bind for 0.0.0.0:5432 failed` (ou 6379) | Un PostgreSQL (ou Redis) est déjà installé sur la machine | Dans `.env` : `FORWARD_DB_PORT=5433` (ou `FORWARD_REDIS_PORT=6380`), puis `sail up -d` |
+| `sail: command not found` | L'alias n'est pas chargé | `source ~/.bashrc`, ou utilisez `./vendor/bin/sail` |
+| `vendor/bin/sail: No such file or directory` | L'étape 6.1 n'a pas été faite | Lancez la commande `docker run … composer install` du §6.1 |
+| Le service `reverb` ou `scheduler` redémarre en boucle | Dépendances absentes ou clé d'application manquante | Vérifiez §6.1 et `sail artisan key:generate`, puis `sail restart reverb scheduler` |
+| `Permission denied` sur `storage/` ou `bootstrap/cache/` | Fichiers créés par un autre utilisateur | `sudo chown -R "$USER": storage bootstrap/cache` |
+| Erreur `Vite manifest not found` | L'interface n'a pas été compilée | `sail npm run build` |
+| Tout est très lent (Windows) | Le projet est sous `/mnt/c/…` | Déplacez-le dans `~/` (voir §1) |
+
+**Le port 80 est déjà utilisé.** Choisissez un autre port, par exemple 8000. Dans `.env` :
+
+```dotenv
+APP_PORT=8000
+APP_URL=http://127.0.0.1:8000
+```
+
+Dans le tableau de bord Spotify, ajoutez la Redirect URI `http://127.0.0.1:8000/auth/spotify/callback`. Pour les téléphones, `JUKEBOX_PUBLIC_URL=http://192.168.1.20:8000` et ouvrez le port 8000 dans le pare-feu au lieu du 80. Puis `sail up -d` et ouvrez `http://127.0.0.1:8000`.
+
+### Connexion Spotify
+
+| Symptôme | Cause probable | Solution |
+| --- | --- | --- |
+| Page Spotify « INVALID_CLIENT: Invalid redirect URI » | L'adresse de redirection ne correspond pas exactement | Comparez la Redirect URI du tableau de bord avec `APP_URL` + `/auth/spotify/callback` (même port, `127.0.0.1`, pas de `/` final) |
+| Page Spotify « INVALID_CLIENT: Invalid client » | Client ID erroné | Recopiez `SPOTIFY_CLIENT_ID` |
+| Retour à l'accueil avec « La connexion à Spotify a échoué » | Client secret erroné, ou compte non autorisé | Recopiez `SPOTIFY_CLIENT_SECRET` ; ajoutez le compte dans *User Management* (§3, point 4) ; détails dans `storage/logs/laravel.log` |
+| Vous avez ouvert `http://localhost` et la connexion échoue | Spotify n'accepte que `127.0.0.1` | Utilisez toujours `http://127.0.0.1` sur le PC |
+| Message « compte non Premium » alors que vous l'êtes | Abonnement souscrit après la connexion | Déconnectez-vous et reconnectez-vous : le statut est relu à chaque connexion |
+
+### Lecture
+
+| Symptôme | Cause probable | Solution |
+| --- | --- | --- |
+| Rien ne se passe à l'ajout du premier morceau | « Démarrer la session » n'a pas été cliqué | Cliquez dessus sur l'écran hôte |
+| Les morceaux Spotify sont sautés avec « Lecture impossible » | Navigateur sans DRM, navigation privée, ou compte non Premium | Utilisez Chrome ou Edge en fenêtre normale ; dans Firefox, autorisez « Lire le contenu protégé par DRM » (Paramètres → Général) |
+| Les morceaux Spotify sont sautés avec un message d'authentification | Session Spotify expirée ou accès révoqué | Retour à l'accueil, déconnexion, reconnexion |
+| Pas de son alors que la barre avance | Onglet ou PC en sourdine | Clic droit sur l'onglet → « Réactiver le son » ; vérifiez la sortie audio (HDMI) du PC |
+| Les morceaux ne s'enchaînent pas toujours | Onglet hôte en arrière-plan | Gardez l'onglet hôte au premier plan |
+
+### Recherche
+
+| Symptôme | Cause probable | Solution |
+| --- | --- | --- |
+| « YouTube momentanément indisponible » | Clé absente ou erronée, API non activée, ou quota épuisé | Vérifiez `YOUTUBE_API_KEY` et que « YouTube Data API v3 » est activée (§4). Le journal indique la raison : `quotaExceeded`, `API_KEY_INVALID`, `accessNotConfigured` |
+| Seuls des résultats YouTube s'affichent | L'hôte n'est pas Premium (c'est voulu), ou clés Spotify erronées | Si l'hôte est Premium, vérifiez les clés Spotify ; le journal indique l'erreur |
+| Aucun résultat, aucune erreur | Moins de 3 caractères | Tapez au moins 3 caractères |
+| Résultats Spotify d'un autre pays ou absents | Mauvais marché | Ajustez `SPOTIFY_MARKET` puis `sail restart reverb scheduler` |
+
+### Téléphones et temps réel
+
+| Symptôme | Cause probable | Solution |
+| --- | --- | --- |
+| Le QR code pointe vers `127.0.0.1` | `JUKEBOX_PUBLIC_URL` est vide | Renseignez-le (§8.2) et rechargez l'écran hôte |
+| Le téléphone n'arrive pas à ouvrir la page | Pare-feu, mauvaise IP, pas le même Wi-Fi, ou « Wi-Fi invités » isolé | Testez `http://IP/up` depuis le téléphone (§8.5) ; vérifiez le profil réseau « Privé » (§8.3) |
+| Page blanche sur le téléphone, alors que le PC l'affiche | L'interface est servie par le serveur de développement | Arrêtez `sail npm run dev`, lancez `sail npm run build`. Si le problème persiste, supprimez le fichier `public/hot` (`rm public/hot`) |
+| Indicateur « Reconnexion… » ou « Hors ligne » permanent | Reverb arrêté, ou port 8080 bloqué | `sail ps` (le service `reverb` doit tourner) ; `sail logs reverb` ; ouvrez le port 8080 dans le pare-feu |
+| La file ne se met pas à jour toute seule | Même cause que ci-dessus | Idem. En attendant, recharger la page affiche toujours l'état exact |
+| Un invité doit ressaisir son pseudo à chaque visite | Navigation privée sur le téléphone | Utilisez une fenêtre normale |
+
+---
+
+## 12. Lancer les tests
+
+Tests backend (PHP, base PostgreSQL `testing` créée automatiquement par Sail ; aucun appel réel à Spotify ou YouTube) :
+
+```bash
+sail artisan test
+```
+
+Tests frontend :
+
+```bash
+sail npm test
+```
+
+Vérification des types TypeScript :
+
+```bash
+sail npm run typecheck
+```
+
+Si la base `testing` n'existe pas (volume PostgreSQL créé avant l'ajout de ce projet) :
+
+```bash
+sail psql -c "CREATE DATABASE testing"
+```
+
+---
+
+## 13. Limites à connaître
+
+- **La lecture réelle Spotify et YouTube n'a pas encore été testée** avec de vraies clés : les adaptateurs suivent la documentation officielle, mais votre premier essai (§7) en est la vraie validation. La détection de fin d'un morceau Spotify est le point le plus fragile ; si les morceaux Spotify ne s'enchaînent pas, signalez-le.
+- **L'écran hôte doit être le PC qui fait tourner l'application** (contrainte Spotify, voir §0). Pour piloter depuis une autre machine, il faudrait servir l'application en HTTPS (par exemple derrière un tunnel ou un nom de domaine) et déclarer cette adresse dans le tableau de bord Spotify.
+- **Un seul onglet hôte à la fois** : deux onglets hôte ouverts jouent le son en double.
+- **Accès par le code** : toute personne qui connaît le code d'un salon peut le rejoindre et voir la file. Il n'y a pas de limite au nombre d'ajouts par invité.
+- **Laravel 11 ne reçoit plus de correctifs de sécurité** : n'exposez pas l'application sur Internet en l'état, et prévoyez la montée vers Laravel 12 ou 13.
+- **Quota YouTube** : environ 90 recherches différentes par jour.
+
+Pour comprendre le code fichier par fichier, ou faire évoluer l'application : [`docs/`](docs/README.md). Les hypothèses, limites détaillées et évolutions suggérées sont dans [`docs/F-cloture.md`](docs/F-cloture.md).
