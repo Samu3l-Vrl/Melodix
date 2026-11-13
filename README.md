@@ -22,6 +22,7 @@ Ce guide vous emmène de zéro à une soirée qui fonctionne. Comptez **environ 
 6. [Installer et démarrer](#6-installer-et-démarrer)
 7. [Premier essai sur votre PC](#7-premier-essai-sur-votre-pc)
    - [Musique de fond (playlist)](#7-bis-musique-de-fond-playlist)
+   - [Transitions entre les morceaux](#transitions-entre-les-morceaux)
 8. [Ouvrir l'accès aux téléphones](#8-ouvrir-laccès-aux-téléphones)
 9. [Le jour de la soirée](#9-le-jour-de-la-soirée)
 10. [Commandes du quotidien](#10-commandes-du-quotidien)
@@ -361,6 +362,12 @@ Bon à savoir :
 - Au plus 500 titres sont importés (réglable avec `JUKEBOX_PLAYLIST_MAX_TRACKS`). Les vidéos supprimées, privées ou non intégrables sont ignorées.
 - Un titre joué depuis moins d'une heure (par exemple parce qu'un invité l'a demandé) est sauté par la playlist.
 - Les titres Spotify d'une playlist sont sautés si l'hôte n'est pas Premium.
+
+### Transitions entre les morceaux
+
+Sur l'écran hôte, le réglage **Transitions** (à côté des boutons de lecture) adoucit le passage d'un morceau à l'autre : le morceau qui se termine baisse progressivement pendant ses dernières secondes, le suivant démarre aussitôt et monte en volume. Choix : **Aucune**, **3 s**, **6 s** (par défaut) ou **10 s**. Le réglage est enregistré pour le salon.
+
+Ce n'est pas un fondu *enchaîné* (les deux morceaux ne se superposent pas) : Spotify ne joue qu'un morceau à la fois par compte, et YouTube impose un lecteur visible. Le fondu supprime en revanche le silence de chargement entre deux morceaux. Il s'interrompt pendant une pause, et ne démarre pas tant qu'une publicité YouTube est en cours.
 
 ---
 

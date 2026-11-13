@@ -4,8 +4,10 @@
 
 use App\Enums\PlaybackStatus;
 use App\Enums\QueueItemStatus;
+use App\Events\PlaybackStateChanged;
 use App\Models\User;
 use App\Services\QueueService;
+use Illuminate\Support\Facades\Event;
 
 beforeEach(function () {
     $this->host = User::factory()->create();
@@ -157,4 +159,57 @@ it('extrapole la position de lecture côté serveur à la milliseconde', functio
     $this->travel(1234)->milliseconds();
 
     expect($this->room->fresh()->currentPositionMs())->toBe(1234);
+});
+
+// --- Transitions entre morceaux -----------------------------------------------------------
+
+it('active par défaut une transition de 6 secondes', function () {
+    $this->getJson("/api/rooms/{$this->room->code}/state")->assertJsonPath('playback.transition_seconds', 6);
+});
+
+it('laisse l\'hôte changer la durée des transitions, même quand rien ne joue, et le diffuse', function () {
+    Event::fake([PlaybackStateChanged::class]);
+
+    $this->actingAs($this->host)->putJson("/host/rooms/{$this->room->code}/transition", ['seconds' => 10])
+        ->assertOk()
+        ->assertJsonPath('playback.transition_seconds', 10)
+        ->assertJsonPath('playback.status', 'idle')
+        ->assertJsonPath('version', 1);
+
+    Event::assertDispatched(
+        PlaybackStateChanged::class,
+        fn ($e) => $e->version === 1 && $e->playback['transition_seconds'] === 10,
+    );
+
+    // Même valeur : rien ne change, pas de nouvelle version.
+    $this->actingAs($this->host)->putJson("/host/rooms/{$this->room->code}/transition", ['seconds' => 10])
+        ->assertJsonPath('version', 1);
+
+    $this->actingAs($this->host)->putJson("/host/rooms/{$this->room->code}/transition", ['seconds' => 0])
+        ->assertJsonPath('playback.transition_seconds', 0);
+});
+
+it('ne modifie pas la position de lecture en changeant la transition', function () {
+    $this->freezeTime();
+    queueTracks($this->room, 1);
+    $this->actingAs($this->host)->postJson($this->url, ['action' => 'play'])->assertOk();
+    $this->travel(5)->seconds();
+
+    $this->actingAs($this->host)->putJson("/host/rooms/{$this->room->code}/transition", ['seconds' => 3])
+        ->assertJsonPath('playback.position_ms', 0)
+        ->assertJsonPath('playback.status', 'playing');
+
+    expect($this->room->fresh()->currentPositionMs())->toBe(5000);
+});
+
+it('refuse une durée de transition non proposée', function (mixed $seconds) {
+    $this->actingAs($this->host)->putJson("/host/rooms/{$this->room->code}/transition", ['seconds' => $seconds])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('seconds');
+})->with([5, -1, 60, 'abc', null]);
+
+it('réserve le réglage des transitions au propriétaire du salon', function () {
+    $this->actingAs(User::factory()->create())
+        ->putJson("/host/rooms/{$this->room->code}/transition", ['seconds' => 3])
+        ->assertForbidden();
 });

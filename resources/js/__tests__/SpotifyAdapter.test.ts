@@ -42,6 +42,7 @@ class FakeSdkPlayer {
     async pause(): Promise<void> {}
     async resume(): Promise<void> {}
     async seek(): Promise<void> {}
+    async setVolume(): Promise<void> {}
     async activateElement(): Promise<void> {}
 
     emit(state: Spotify.WebPlaybackState): void {

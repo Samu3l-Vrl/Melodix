@@ -28,6 +28,17 @@ interface CurrentTrack {
     track: Track;
 }
 
+/** Fréquence de réglage du volume pendant une transition. */
+const TRANSITION_TICK_MS = 100;
+/** Le morceau suivant est lancé quand il reste moins de 300 ms (le courant est alors inaudible). */
+const EARLY_END_MS = 300;
+/** Montée en volume maximale d'un morceau qui commence. */
+const MAX_FADE_IN_MS = 4000;
+/** Au-delà, une position non confirmée par le lecteur n'est plus extrapolée. */
+const MAX_EXTRAPOLATION_MS = 1500;
+/** Écart minimal entre deux volumes appliqués (évite des appels inutiles au lecteur). */
+const VOLUME_STEP = 0.02;
+
 export class PlayerManager {
     private readonly adapters = new Map<Provider, PlayerAdapter>();
     private active: PlayerAdapter | null = null;
@@ -36,6 +47,17 @@ export class PlayerManager {
     private settledKey: number | null = null;
     /** Numéro du dernier appel à load() : permet d'ignorer le résultat d'un chargement devenu obsolète. */
     private loadSequence = 0;
+
+    // --- Transitions entre morceaux -------------------------------------------------------
+    /** Durée du fondu de fin (ms). 0 = pas de transition. */
+    private transitionMs = 0;
+    /** Le lecteur actif est-il censé jouer (et non en pause) ? */
+    private playing = false;
+    /** Dernière position réelle remontée par le lecteur actif, et l'instant où elle l'a été. */
+    private lastProgress: { key: number; positionMs: number; at: number } | null = null;
+    /** Dernier volume appliqué au lecteur actif (évite d'appeler setVolume 10 fois par seconde pour rien). */
+    private appliedVolume: number | null = null;
+    private transitionTimer: ReturnType<typeof setInterval> | null = null;
 
     constructor(
         private readonly factories: Partial<Record<Provider, AdapterFactory>>,
@@ -74,6 +96,8 @@ export class PlayerManager {
 
         this.current = { key, track };
         this.settledKey = null;
+        this.playing = options.autoplay;
+        this.lastProgress = null;
 
         // Bascule de source : le lecteur précédent doit se taire avant que le nouveau démarre.
         if (this.active !== null && this.active !== adapter) {
@@ -88,6 +112,9 @@ export class PlayerManager {
         }
 
         this.active = adapter;
+        // Avec les transitions, un morceau qui démarre au début part du silence puis monte (voir tick()).
+        // Sinon (ou en reprise en cours de morceau), plein volume.
+        await this.applyVolume(this.transitionMs > 0 && options.positionMs < this.fadeInMs() ? 0 : 1, true);
 
         try {
             await adapter.load(track, options);
@@ -101,6 +128,8 @@ export class PlayerManager {
 
     /** Reprend la lecture. Un échec ici signifie que le morceau est illisible : il sera sauté. */
     async play(): Promise<void> {
+        this.playing = true;
+
         try {
             await this.active?.play();
         } catch (error) {
@@ -112,6 +141,7 @@ export class PlayerManager {
 
     /** Pause et seek sont "au mieux" : un échec ne doit ni planter l'interface ni sauter le morceau. */
     async pause(): Promise<void> {
+        this.playing = false;
         await this.active?.pause().catch(() => undefined);
     }
 
@@ -123,6 +153,7 @@ export class PlayerManager {
     async stop(): Promise<void> {
         this.loadSequence++;
         this.current = null;
+        this.playing = false;
         await this.active?.pause().catch(() => undefined);
     }
 
@@ -131,10 +162,44 @@ export class PlayerManager {
         return this.current?.key ?? null;
     }
 
+    /**
+     * Règle la transition entre morceaux : pendant ses `ms` dernières millisecondes, le morceau baisse
+     * jusqu'au silence ; le suivant est lancé juste avant la fin et monte en volume.
+     *
+     * Pas de chevauchement : Spotify ne joue qu'un morceau à la fois par compte, et YouTube exige un
+     * lecteur visible. Le fondu masque en revanche le silence de chargement entre deux morceaux.
+     */
+    setTransition(ms: number): void {
+        this.transitionMs = Math.max(0, ms);
+
+        if (this.transitionMs === 0) {
+            if (this.transitionTimer !== null) {
+                clearInterval(this.transitionTimer);
+                this.transitionTimer = null;
+            }
+
+            // Plus de fondu : tous les lecteurs reviennent au plein volume.
+            this.appliedVolume = null;
+
+            for (const adapter of this.adapters.values()) {
+                void adapter.setVolume(1).catch(() => undefined);
+            }
+
+            return;
+        }
+
+        this.transitionTimer ??= setInterval(() => this.tick(), TRANSITION_TICK_MS);
+    }
+
     destroy(): void {
         this.loadSequence++;
         this.current = null;
         this.active = null;
+
+        if (this.transitionTimer !== null) {
+            clearInterval(this.transitionTimer);
+            this.transitionTimer = null;
+        }
 
         for (const adapter of this.adapters.values()) {
             adapter.destroy();
@@ -177,6 +242,7 @@ export class PlayerManager {
 
         adapter.onProgress((positionMs, durationMs) => {
             if (this.active === adapter && this.current !== null) {
+                this.lastProgress = { key: this.current.key, positionMs, at: Date.now() };
                 this.events.onProgress?.(this.current.key, positionMs, durationMs);
             }
         });
@@ -184,6 +250,62 @@ export class PlayerManager {
         this.adapters.set(provider, adapter);
 
         return adapter;
+    }
+
+    /**
+     * Appelé toutes les 100 ms quand les transitions sont actives : ajuste le volume du lecteur
+     * et lance le morceau suivant juste avant la fin du morceau courant.
+     *
+     * La position est celle REMONTÉE PAR LE LECTEUR (extrapolée entre deux relevés), pas celle du
+     * serveur : pendant une publicité YouTube ou une mise en mémoire tampon, la position réelle
+     * n'avance pas, et le fondu ne doit pas commencer. La durée est celle du catalogue (track.duration_ms),
+     * jamais celle annoncée par le lecteur, qui peut être celle d'une publicité.
+     */
+    private tick(): void {
+        const current = this.current;
+        const progress = this.lastProgress;
+
+        if (this.transitionMs === 0 || !this.playing || current === null || this.active === null) {
+            return;
+        }
+
+        if (progress === null || progress.key !== current.key) {
+            return;
+        }
+
+        // Extrapolation bornée : si le lecteur ne remonte plus rien (blocage), on n'invente pas la suite.
+        const elapsed = Math.min(Math.max(0, Date.now() - progress.at), MAX_EXTRAPOLATION_MS);
+        const positionMs = progress.positionMs + elapsed;
+        const remainingMs = current.track.duration_ms - positionMs;
+
+        const fadeIn = this.fadeInMs();
+        const volumeIn = fadeIn > 0 ? positionMs / fadeIn : 1;
+        const volumeOut = remainingMs / this.transitionMs;
+
+        void this.applyVolume(Math.min(1, Math.max(0, Math.min(volumeIn, volumeOut))));
+
+        // Fin anticipée : le morceau est déjà silencieux, on enchaîne sans attendre la fin « officielle »
+        // (ni le temps de chargement qui suivrait). Un seul signal par morceau, grâce à settle().
+        if (remainingMs <= EARLY_END_MS) {
+            this.playing = false;
+            this.settle(current.key, () => this.events.onTrackEnded(current.key));
+        }
+    }
+
+    /** Durée de la montée en volume d'un morceau : la moitié de la transition, 4 s au plus. */
+    private fadeInMs(): number {
+        return Math.min(this.transitionMs / 2, MAX_FADE_IN_MS);
+    }
+
+    private async applyVolume(volume: number, force = false): Promise<void> {
+        const rounded = Math.round(volume * 100) / 100;
+
+        if (this.active === null || (!force && this.appliedVolume !== null && Math.abs(rounded - this.appliedVolume) < VOLUME_STEP)) {
+            return;
+        }
+
+        this.appliedVolume = rounded;
+        await this.active.setVolume(rounded).catch(() => undefined);
     }
 
     private fail(key: number, error: PlayerError): void {

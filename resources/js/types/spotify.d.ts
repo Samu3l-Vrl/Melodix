@@ -50,6 +50,8 @@ declare namespace Spotify {
         pause(): Promise<void>;
         resume(): Promise<void>;
         seek(positionMs: number): Promise<void>;
+        /** Volume de 0 à 1. */
+        setVolume(volume: number): Promise<void>;
         /** Débloque l'audio sur les navigateurs qui exigent un geste utilisateur. */
         activateElement(): Promise<void>;
     }

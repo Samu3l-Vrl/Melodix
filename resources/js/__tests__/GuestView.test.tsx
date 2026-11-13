@@ -337,7 +337,7 @@ describe('GuestView — file et lecture', () => {
         const next = makeItem({ added_by: { type: 'guest', name: 'Noé' } });
         const room = makeRoomState({
             version: 4,
-            playback: { status: 'paused', current, position_ms: 65_000, position_updated_at: Date.now(), playlist: null },
+            playback: { status: 'paused', current, position_ms: 65_000, position_updated_at: Date.now(), transition_seconds: 6, playlist: null },
             queue: [next],
         });
 
@@ -370,7 +370,7 @@ describe('GuestView — file et lecture', () => {
         const current = makeItem({ status: 'playing', added_by: { type: 'playlist', name: 'Soirée 2000' } });
 
         await renderAsGuest(
-            makeRoomState({ version: 2, playback: { status: 'playing', current, position_ms: 0, position_updated_at: Date.now(), playlist } }),
+            makeRoomState({ version: 2, playback: { status: 'playing', current, position_ms: 0, position_updated_at: Date.now(), transition_seconds: 6, playlist } }),
         );
 
         expect(screen.getByText(/Vos morceaux passent/)).toHaveTextContent('Musique de fond : Soirée 2000. Vos morceaux passent avant.');

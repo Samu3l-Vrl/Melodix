@@ -70,6 +70,8 @@ export interface PlaybackState {
     current: QueueItem | null;
     position_ms: number;
     position_updated_at: number | null;
+    /** Durée du fondu entre deux morceaux, en secondes (0 = pas de transition). */
+    transition_seconds: number;
     /** Playlist de fond du salon, ou null. */
     playlist: PlaylistSummary | null;
 }

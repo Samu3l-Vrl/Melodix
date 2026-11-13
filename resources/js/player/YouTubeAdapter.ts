@@ -97,6 +97,11 @@ export class YouTubeAdapter implements PlayerAdapter {
         this.player?.seekTo(positionMs / 1000, true);
     }
 
+    async setVolume(volume: number): Promise<void> {
+        // L'API YouTube attend un entier de 0 à 100. Le volume est conservé d'une vidéo à l'autre.
+        this.player?.setVolume(Math.round(Math.min(1, Math.max(0, volume)) * 100));
+    }
+
     destroy(): void {
         this.destroyed = true;
         this.stopProgress();

@@ -33,7 +33,7 @@ export function makeItem(overrides: Partial<QueueItem> & { provider?: Provider }
 }
 
 export function makePlayback(overrides: Partial<PlaybackState> = {}): PlaybackState {
-    return { status: 'idle', current: null, position_ms: 0, position_updated_at: null, playlist: null, ...overrides };
+    return { status: 'idle', current: null, position_ms: 0, position_updated_at: null, transition_seconds: 6, playlist: null, ...overrides };
 }
 
 export function makeRoomState(overrides: Partial<RoomState> = {}): RoomState {

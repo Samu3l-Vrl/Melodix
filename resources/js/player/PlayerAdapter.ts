@@ -54,6 +54,9 @@ export interface PlayerAdapter {
     pause(): Promise<void>;
     seek(positionMs: number): Promise<void>;
 
+    /** Volume du lecteur, de 0 (muet) à 1 (plein). Sert aux transitions entre morceaux. */
+    setVolume(volume: number): Promise<void>;
+
     /** Libère toutes les ressources (lecteur, minuteries, écouteurs). */
     destroy(): void;
 

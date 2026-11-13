@@ -145,6 +145,10 @@ export const api = {
     reorderQueue: (code: string, order: number[]): Promise<RoomState> =>
         request('PUT', `${host(code)}/queue/reorder`, { body: { order } }),
 
+    /** Durée des transitions entre morceaux, en secondes (0 = aucune). */
+    setTransition: (code: string, seconds: number): Promise<RoomState> =>
+        request('PUT', `${host(code)}/transition`, { body: { seconds } }),
+
     /** Remplace la playlist de fond (lien Spotify ou YouTube). */
     setPlaylist: (code: string, playlistUrl: string, shuffle: boolean): Promise<RoomState> =>
         request('PUT', `${host(code)}/playlist`, { body: { playlist_url: playlistUrl, shuffle } }),

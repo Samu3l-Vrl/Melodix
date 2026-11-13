@@ -167,6 +167,10 @@ export class SpotifyAdapter implements PlayerAdapter {
         await this.player?.seek(Math.max(0, Math.floor(positionMs)));
     }
 
+    async setVolume(volume: number): Promise<void> {
+        await this.player?.setVolume(Math.min(1, Math.max(0, volume)));
+    }
+
     destroy(): void {
         this.stopProgress();
         this.player?.disconnect();

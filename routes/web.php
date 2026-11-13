@@ -52,6 +52,7 @@ Route::middleware('auth')->group(function () {
         ->name('host.')
         ->group(function () {
             Route::post('/playback', PlaybackController::class)->name('playback');
+            Route::put('/transition', [PlaybackController::class, 'transition'])->name('transition');
 
             Route::post('/queue/advance', [HostQueueController::class, 'advance'])->name('queue.advance');
             Route::put('/queue/reorder', [HostQueueController::class, 'reorder'])->name('queue.reorder');

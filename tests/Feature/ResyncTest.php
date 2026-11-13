@@ -21,7 +21,7 @@ it('renvoie un état initial vide et cohérent', function () {
             'version' => 0,
             'server_time' => now()->getTimestampMs(),
             'spotify_enabled' => true,
-            'playback' => ['status' => 'idle', 'current' => null, 'position_ms' => 0, 'position_updated_at' => null, 'playlist' => null],
+            'playback' => ['status' => 'idle', 'current' => null, 'position_ms' => 0, 'position_updated_at' => null, 'transition_seconds' => 6, 'playlist' => null],
             'queue' => [],
         ]);
 });

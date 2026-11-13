@@ -9,7 +9,7 @@ import {
 } from '@/player/PlayerAdapter';
 import { PlayerManager, type PlayerManagerEvents } from '@/player/PlayerManager';
 import type { Provider, Track } from '@/types';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeTrack } from './factories';
 
 /** Faux lecteur : enregistre les appels reçus et permet d'émettre fin / erreur / progression à la demande. */
@@ -50,6 +50,15 @@ class FakeAdapter implements PlayerAdapter {
 
     async seek(positionMs: number): Promise<void> {
         this.calls.push(`seek:${positionMs}`);
+    }
+
+    /** Dernier volume reçu (les appels de volume ne sont pas mêlés à `calls`, pour garder les tests lisibles). */
+    volume = 1;
+    readonly volumes: number[] = [];
+
+    async setVolume(volume: number): Promise<void> {
+        this.volume = volume;
+        this.volumes.push(volume);
     }
 
     destroy(): void {
@@ -346,5 +355,135 @@ describe('PlayerManager — progression et cycle de vie', () => {
 
         expect(spotify.calls).toContain('destroy');
         expect(youtube.calls).toContain('destroy');
+    });
+});
+
+describe('PlayerManager — transitions entre morceaux', () => {
+    // Morceau de 60 s, transition de 6 s : fondu de fin à partir de 54 s, montée sur 3 s.
+    const song = makeTrack({ provider: 'youtube', provider_track_id: 'song', duration_ms: 60_000 });
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.setSystemTime(0);
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    /** Simule la position réelle remontée par le lecteur, puis laisse tourner les 100 ms de réglage. */
+    const reach = async (positionMs: number): Promise<void> => {
+        youtube.emitProgress(positionMs, 60_000);
+        await vi.advanceTimersByTimeAsync(100);
+    };
+
+    it('lance un morceau en silence puis le fait monter en volume', async () => {
+        const manager = makeManager();
+        manager.setTransition(6000);
+
+        await manager.load(1, song, playing);
+        expect(youtube.volume).toBe(0);
+
+        await reach(1500);
+        expect(youtube.volume).toBeCloseTo(0.5 + 0.1 / 3, 1); // 1,6 s sur 3 s de montée
+
+        await reach(3500);
+        expect(youtube.volume).toBe(1);
+    });
+
+    it('baisse le volume pendant les dernières secondes, puis enchaîne juste avant la fin', async () => {
+        const manager = makeManager();
+        manager.setTransition(6000);
+        await manager.load(1, song, playing);
+
+        await reach(30_000);
+        expect(youtube.volume).toBe(1);
+
+        await reach(57_000);
+        expect(youtube.volume).toBeCloseTo((60_000 - 57_100) / 6000, 1);
+        expect(events.onTrackEnded).not.toHaveBeenCalled();
+
+        // Plus aucun relevé : la position est extrapolée jusqu'à 300 ms de la fin.
+        await reach(59_000);
+        await vi.advanceTimersByTimeAsync(1000);
+
+        expect(events.onTrackEnded).toHaveBeenCalledExactlyOnceWith(1);
+        expect(youtube.volume).toBeLessThan(0.1);
+
+        // La vraie fin arrive ensuite : pas de second signal.
+        youtube.emitEnded();
+        expect(events.onTrackEnded).toHaveBeenCalledTimes(1);
+    });
+
+    it('ne fait rien pendant une pause', async () => {
+        const manager = makeManager();
+        manager.setTransition(6000);
+        await manager.load(1, song, playing);
+        await reach(58_000);
+        await manager.pause();
+
+        await vi.advanceTimersByTimeAsync(5000);
+
+        expect(events.onTrackEnded).not.toHaveBeenCalled();
+    });
+
+    it('n\'extrapole pas indéfiniment une position que le lecteur ne confirme plus (publicité, blocage)', async () => {
+        const manager = makeManager();
+        manager.setTransition(6000);
+        await manager.load(1, song, playing);
+
+        // Dernier relevé à 50 s, puis plus rien pendant 30 s : on ne suppose pas que le morceau a fini.
+        await reach(50_000);
+        await vi.advanceTimersByTimeAsync(30_000);
+
+        expect(events.onTrackEnded).not.toHaveBeenCalled();
+    });
+
+    it('reprend en plein volume un morceau rechargé en cours de lecture', async () => {
+        const manager = makeManager();
+        manager.setTransition(6000);
+
+        await manager.load(1, song, { positionMs: 20_000, autoplay: true });
+
+        expect(youtube.volume).toBe(1);
+    });
+
+    it('sans transition : plein volume et aucune fin anticipée', async () => {
+        const manager = makeManager();
+        manager.setTransition(0);
+        await manager.load(1, song, playing);
+
+        await reach(59_500);
+        await vi.advanceTimersByTimeAsync(1000);
+
+        expect(youtube.volume).toBe(1);
+        expect(events.onTrackEnded).not.toHaveBeenCalled();
+    });
+
+    it('rétablit le plein volume quand on désactive la transition en plein fondu', async () => {
+        const manager = makeManager();
+        manager.setTransition(6000);
+        await manager.load(1, song, playing);
+        await reach(57_000);
+        expect(youtube.volume).toBeLessThan(1);
+
+        manager.setTransition(0);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(youtube.volume).toBe(1);
+    });
+
+    it('remet le nouveau lecteur au silence lors d\'une bascule de source', async () => {
+        const manager = makeManager();
+        manager.setTransition(6000);
+
+        await manager.load(1, song, playing);
+        await reach(10_000);
+        expect(youtube.volume).toBe(1);
+
+        await manager.load(2, makeTrack({ provider: 'spotify', provider_track_id: 'sp', duration_ms: 60_000 }), playing);
+
+        expect(spotify.volume).toBe(0);
+        expect(youtube.calls).toContain('pause');
     });
 });

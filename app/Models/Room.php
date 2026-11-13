@@ -25,6 +25,7 @@ use Illuminate\Support\Carbon;
  * @property int|null $current_queue_item_id
  * @property int|null $playlist_id
  * @property int $playlist_position
+ * @property int $transition_seconds
  * @property int $position_ms
  * @property CarbonImmutable|null $position_updated_at
  * @property int $version
@@ -38,6 +39,12 @@ class Room extends Model
     /** @use HasFactory<RoomFactory> */
     use HasFactory;
 
+    /** Transition par défaut entre deux morceaux (secondes). Doit correspondre au défaut de la migration. */
+    public const DEFAULT_TRANSITION_SECONDS = 6;
+
+    /** Durées proposées à l'hôte (0 = pas de transition). */
+    public const TRANSITION_CHOICES = [0, 3, 6, 10];
+
     /** @var list<string> */
     protected $fillable = [
         'code',
@@ -47,6 +54,7 @@ class Room extends Model
         'current_queue_item_id',
         'playlist_id',
         'playlist_position',
+        'transition_seconds',
         'position_ms',
         'position_updated_at',
         'version',
@@ -64,6 +72,7 @@ class Room extends Model
         'playback_status' => 'idle',
         'position_ms' => 0,
         'playlist_position' => 0,
+        'transition_seconds' => self::DEFAULT_TRANSITION_SECONDS,
         'version' => 0,
     ];
 
@@ -76,6 +85,7 @@ class Room extends Model
             'current_queue_item_id' => 'integer',
             'playlist_id' => 'integer',
             'playlist_position' => 'integer',
+            'transition_seconds' => 'integer',
             'position_ms' => 'integer',
             'position_updated_at' => AsPreciseDateTime::class,
             'version' => 'integer',

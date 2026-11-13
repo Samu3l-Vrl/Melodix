@@ -64,6 +64,38 @@ class PlaybackService
     }
 
     /**
+     * Change la durée des transitions entre morceaux. C'est un réglage du salon : il est enregistré
+     * et diffusé même quand rien ne joue (contrairement à play/pause/seek), et ne touche pas à la position.
+     */
+    public function setTransition(Room $room, int $seconds): bool
+    {
+        $changed = DB::transaction(function () use ($room, $seconds) {
+            $locked = Room::query()->whereKey($room->id)->lockForUpdate()->firstOrFail();
+
+            if (! $locked->isOpen()) {
+                throw new RoomClosedException;
+            }
+
+            if ($locked->transition_seconds === $seconds) {
+                return false;
+            }
+
+            $locked->transition_seconds = $seconds;
+            $locked->bumpVersion()->save();
+
+            return true;
+        });
+
+        $room->refresh();
+
+        if ($changed) {
+            $this->broadcaster->send(PlaybackStateChanged::fromRoom($room));
+        }
+
+        return $changed;
+    }
+
+    /**
      * Gabarit commun : verrou, mutation, horodatage, version, puis diffusion après commit.
      * Sans morceau courant il n'y a rien à piloter : aucune mutation, aucune version.
      *

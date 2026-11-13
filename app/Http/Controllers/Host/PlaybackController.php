@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Host;
 use App\Enums\QueueItemStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\PlaybackRequest;
+use App\Http\Requests\SetTransitionRequest;
 use App\Http\Resources\RoomStateResource;
 use App\Models\Room;
 use App\Services\PlaybackService;
@@ -58,6 +59,14 @@ class PlaybackController extends Controller
                 $queue->advance($room, $request->integer('item_id'), QueueItemStatus::Played);
                 break;
         }
+
+        return RoomStateResource::for($room);
+    }
+
+    /** PUT /host/rooms/{code}/transition — durée du fondu entre deux morceaux (0 = désactivé). */
+    public function transition(SetTransitionRequest $request, Room $room, PlaybackService $playback): RoomStateResource
+    {
+        $playback->setTransition($room, $request->integer('seconds'));
 
         return RoomStateResource::for($room);
     }

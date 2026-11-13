@@ -17,7 +17,7 @@ import { SpotifyAdapter } from '@/player/SpotifyAdapter';
 import { YouTubeAdapter } from '@/player/YouTubeAdapter';
 import type { HostUser, Provider, QueueItem, RoomState } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
-import { ArrowDown, ArrowUp, CircleAlert, ListMusic, LoaderCircle, Music, Pause, Play, Power, Shuffle, SkipForward, Trash2, Users, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Blend, CircleAlert, ListMusic, LoaderCircle, Music, Pause, Play, Power, Shuffle, SkipForward, Trash2, Users, X } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
@@ -35,6 +35,8 @@ const DRIFT_TOLERANCE_MS = 2500;
 const DRIFT_REPORT_INTERVAL_MS = 3000;
 /** Durée d'affichage d'un message temporaire. */
 const NOTICE_DURATION_MS = 6000;
+/** Durées de transition proposées (secondes), identiques à Room::TRANSITION_CHOICES côté serveur. */
+const TRANSITION_CHOICES = [0, 3, 6, 10] as const;
 /** Durée d'affichage d'une erreur de lecture. */
 const ERROR_NOTICE_DURATION_MS = 30000;
 
@@ -194,10 +196,18 @@ export default function HostView({ room, host, join_url: joinUrl }: HostViewProp
             onProgress: reportDrift,
         });
 
+        manager.setTransition(state.playback.transition_seconds * 1000);
         managerRef.current = manager;
         void manager.unlock();
         setStarted(true);
     };
+
+    // Le réglage peut changer à tout moment (ici ou depuis un autre onglet hôte) : le lecteur suit l'état.
+    const transitionSeconds = playback.transition_seconds;
+
+    useEffect(() => {
+        managerRef.current?.setTransition(transitionSeconds * 1000);
+    }, [started, transitionSeconds]);
 
     // Destruction des lecteurs quand on quitte la page.
     useEffect(
@@ -453,6 +463,23 @@ export default function HostView({ room, host, join_url: joinUrl }: HostViewProp
                                 >
                                     <SkipForward aria-hidden="true" className="h-6 w-6" />
                                 </button>
+
+                                {/* Transitions : fondu de fin et montée du morceau suivant (réglage enregistré sur le serveur). */}
+                                <label className="flex items-center gap-2 rounded-full bg-white/5 py-1.5 pl-3 pr-1.5 text-sm text-slate-300 ring-1 ring-white/10">
+                                    <Blend aria-hidden="true" className="h-4 w-4 text-accent" />
+                                    <span>Transitions</span>
+                                    <select
+                                        value={playback.transition_seconds}
+                                        onChange={(event) => void run(() => api.setTransition(code, Number(event.target.value)))}
+                                        className="rounded-full border-0 bg-ink-800 py-1 pl-3 pr-8 text-sm text-white focus:ring-2 focus:ring-accent"
+                                    >
+                                        {TRANSITION_CHOICES.map((seconds) => (
+                                            <option key={seconds} value={seconds}>
+                                                {seconds === 0 ? 'Aucune' : `${seconds} s`}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
 
                                 {/* aria-live : les messages (arrivée d'un invité, morceau sauté) sont annoncés. */}
                                 <p

@@ -85,6 +85,7 @@ Aucune ambiguïté n'était bloquante ; voici les décisions prises sans vous co
 | Payload des events | Deltas (`added` / `removed` / `reordered`), pas la file entière |
 | Canal privé de l'hôte | Sert à l'event `GuestJoined` (ajouté : le cahier des charges ne listait que deux events) |
 | Démarrage de la lecture | L'écran hôte demande « play » dès que la file n'est plus vide ou qu'une playlist de fond est définie ; le serveur ne démarre jamais seul |
+| Transitions | Fondu de fin + montée du morceau suivant, sans chevauchement (impossible avec Spotify et le lecteur YouTube visible). 6 s par défaut, réglable par salon (0, 3, 6, 10 s) ; appliqué par le lecteur de l'hôte à partir de sa position réelle |
 | Playlist de fond | Jouée quand la file est vide, priorité aux invités, reprise au titre suivant, boucle en fin de liste ; un titre joué dans l'heure est sauté. Morceaux copiés en base à l'import (500 au plus) : la lecture ne rappelle jamais la source |
 | Retrait d'un morceau | Suppression de la ligne `queue_items` |
 | Réordonnancement | Boutons monter / descendre, envoi de l'ordre complet ; refusé (409) si la file a changé entre-temps |
